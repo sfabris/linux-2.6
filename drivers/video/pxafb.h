@@ -21,6 +21,71 @@
  * for more details.
  */
 
+#ifdef CONFIG_FB_PXA_MINILCD
+
+#include <asm/ioctl.h>
+
+/* commands for pxafb_minilcd_ioctl() */
+
+#define PXAFB_MINILCD_ENABLE            _IOW('F', 0x80, unsigned int)
+#define PXAFB_MINILCD_BACKLIGHT         _IOW('F', 0x81, unsigned int)
+#define PXAFB_MINILCD_WAKEUP            _IOW('F', 0x82, unsigned int)
+#define PXAFB_MINILCD_FWAKEUP           _IOW('F', 0x83, unsigned int)
+#define PXAFB_MINILCD_FRAMEDATA         _IOW('F', 0x84, void *)
+
+/* Shadows for Mini-LCD controller registers */
+struct pxafb_minilcd_reg {
+        uint32_t mlccr0;
+        uint32_t mlccr1;
+        uint32_t mlccr2;
+        uint32_t mlsadd;
+        uint32_t mlfrmcnt;
+};
+
+/*
+ * pxafb_minilcd_info - run-time information to enable mini-lcd
+ * enable     - enable in low power mode (S0/D1/C2)
+ * framecount - shadow of register MLFRMCNT
+ * frameaddr  - shadow of register MLSADR
+ * framedata  - points to the encoded data from user specified buffer,
+ *              or NULL if the base frame buffer is going to be used.
+ * framesize  - size of the encoded frame data if 'framedata' is not NULL
+ */
+struct pxafb_minilcd_info {
+        unsigned int    enable;
+        unsigned int    backlight;
+        uint32_t        framecount;
+        void *          framedata;
+        size_t          framesize;
+
+        uint32_t        sram_addr_phys; /* Physical address of the SRAM */
+        void *          sram_addr_virt; /* Virtual address of the SRAM */
+        void *          sram_save_to;   /* address to backup SRAM into */
+        size_t          sram_save_size; /* size of saved SRAM */
+};
+
+extern int pxafb_minilcd_register(struct fb_info *);
+extern int pxafb_minilcd_ioctl(struct fb_info *info, unsigned int cmd,
+                                unsigned long arg);
+
+extern int pxafb_minilcd_enter(void);
+extern int pxafb_minilcd_exit(void);
+#endif
+
+
+
+/* Shadows for LCD controller registers */
+struct pxafb_lcd_reg {
+	unsigned int lccr0;
+	unsigned int lccr1;
+	unsigned int lccr2;
+	unsigned int lccr3;
+	unsigned int lccr4;
+	unsigned int lccr5;
+	unsigned int lccr6;
+	unsigned int cmdcr;
+};
+
 /* PXA LCD DMA descriptor */
 struct pxafb_dma_descriptor {
 	unsigned int fdadr;
@@ -29,48 +94,67 @@ struct pxafb_dma_descriptor {
 	unsigned int ldcmd;
 };
 
-enum {
-	PAL_NONE	= -1,
-	PAL_BASE	= 0,
-	PAL_OV1		= 1,
-	PAL_OV2		= 2,
-	PAL_MAX,
+#if defined(CONFIG_PXA27x) || defined(CONFIG_PXA3xx)
+/* PXA Overlay Framebuffer Support */
+struct overlayfb_info
+{
+	struct fb_info	fb;
+	
+	struct fb_var_screeninfo old_var;
+
+	struct semaphore mutex;
+	unsigned long	 refcount;
+
+	struct pxafb_info *basefb;
+
+	unsigned long	map_cpu;
+	unsigned long 	screen_cpu;
+	unsigned long	palette_cpu;
+	unsigned long 	map_size;
+	unsigned long   palette_size;
+
+	dma_addr_t 	screen_dma;
+	dma_addr_t	map_dma;
+	dma_addr_t	palette_dma;
+
+	volatile u_char	state;
+
+	/* overlay specific info */
+	unsigned long	xpos;		/* screen position (x, y)*/
+	unsigned long	ypos;		
+	unsigned long 	format;
+	unsigned int	buffer_num;
+	unsigned int	buffer_index;
+	unsigned int	ylen;
+	unsigned int	cblen;
+	unsigned int	crlen;
+	unsigned int	yoff;
+	unsigned int	cboff; 
+	unsigned int	croff;
+
+	/* additional */
+	union {
+		struct pxafb_dma_descriptor *dma0;
+		struct pxafb_dma_descriptor *dma1;
+		struct {
+			struct pxafb_dma_descriptor *dma2;
+			struct pxafb_dma_descriptor *dma3;
+			struct pxafb_dma_descriptor *dma4;
+		};
+		struct {
+			struct pxafb_dma_descriptor *dma5_pal;
+			struct pxafb_dma_descriptor *dma5_frame;
+		};
+	};
+	unsigned int dma_changed;
 };
-
-enum {
-	DMA_BASE	= 0,
-	DMA_UPPER	= 0,
-	DMA_LOWER	= 1,
-	DMA_OV1		= 1,
-	DMA_OV2_Y	= 2,
-	DMA_OV2_Cb	= 3,
-	DMA_OV2_Cr	= 4,
-	DMA_CURSOR	= 5,
-	DMA_CMD		= 6,
-	DMA_MAX,
-};
-
-/* maximum palette size - 256 entries, each 4 bytes long */
-#define PALETTE_SIZE	(256 * 4)
-#define CMD_BUFF_SIZE	(1024 * 50)
-
-struct pxafb_dma_buff {
-	unsigned char palette[PAL_MAX * PALETTE_SIZE];
-	uint16_t cmd_buff[CMD_BUFF_SIZE];
-	struct pxafb_dma_descriptor pal_desc[PAL_MAX];
-	struct pxafb_dma_descriptor dma_desc[DMA_MAX];
-};
-
+#endif
+ 
 struct pxafb_info {
 	struct fb_info		fb;
 	struct device		*dev;
 	struct clk		*clk;
-
-	void __iomem		*mmio_base;
-
-	struct pxafb_dma_buff	*dma_buff;
-	dma_addr_t		dma_buff_phys;
-	dma_addr_t		fdadr[DMA_MAX];
+	struct clk		*smc_clk;	/* SMC clock */
 
 	/*
 	 * These are the addresses we mapped
@@ -80,17 +164,48 @@ struct pxafb_info {
 	dma_addr_t		map_dma;	/* physical */
 	u_char *		map_cpu;	/* virtual */
 	u_int			map_size;
+	
+
+	/* overlay2 reserve memory */
+	dma_addr_t	ov2_map_dma; /* DMA address of overlay2 buffer */
+	u_char		*ov2_map_cpu; /* cpu address of overlay2 buffer */
+	
+	/* max size of overlay2 buffer
+	 * RGB 25 bit. duel buffer. (640x480x4x2)
+	 */
+	u_int ov2_map_size;
+
 
 	/* addresses of pieces placed in raw buffer */
+	u_char *		cmd_cpu;	/* virtual address of command buffer */
+	dma_addr_t		cmd_dma;	/* physical address of command buffer */
 	u_char *		screen_cpu;	/* virtual address of frame buffer */
 	dma_addr_t		screen_dma;	/* physical address of frame buffer */
 	u16 *			palette_cpu;	/* virtual address of palette memory */
+	dma_addr_t		palette_dma;	/* physical address of palette memory */
 	u_int			palette_size;
-	ssize_t			video_offset;
+
+	/* DMA descriptors */
+	struct pxafb_dma_descriptor * 	dmadesc_cmd_cpu;
+	dma_addr_t		dmadesc_cmd_dma;
+	struct pxafb_dma_descriptor * 	dmadesc_fblow_cpu;
+	dma_addr_t		dmadesc_fblow_dma;
+	struct pxafb_dma_descriptor * 	dmadesc_fbhigh_cpu;
+	dma_addr_t		dmadesc_fbhigh_dma;
+	struct pxafb_dma_descriptor *	dmadesc_palette_cpu;
+	dma_addr_t		dmadesc_palette_dma;
+
+	dma_addr_t		fdadr0;
+	dma_addr_t		fdadr1;
+	dma_addr_t		fdadr2;
+	dma_addr_t		fdadr3;
+	dma_addr_t		fdadr4;
+	dma_addr_t		fdadr6;
 
 	u_int			lccr0;
 	u_int			lccr3;
 	u_int			lccr4;
+	u_int			lccr6;
 	u_int			cmap_inverse:1,
 				cmap_static:1,
 				unused:30;
@@ -100,29 +215,53 @@ struct pxafb_info {
 	u_int			reg_lccr2;
 	u_int			reg_lccr3;
 	u_int			reg_lccr4;
+	u_int			reg_lccr5;
+	u_int			reg_lccr6;
 	u_int			reg_cmdcr;
+	u_int			reg_ovl1c1;
+	u_int			reg_ovl1c2;
+	u_int			reg_ovl2c1;
+	u_int			reg_ovl2c2;
 
 	unsigned long	hsync_time;
 
 	volatile u_char		state;
 	volatile u_char		task_state;
-	struct mutex		ctrlr_lock;
+	struct semaphore	ctrlr_sem;
 	wait_queue_head_t	ctrlr_wait;
 	struct work_struct	task;
 
-	struct completion	disable_done;
-
-#ifdef CONFIG_FB_PXA_SMARTPANEL
-	uint16_t		*smart_cmds;
-	size_t			n_smart_cmds;
-	struct completion	command_done;
-	struct completion	refresh_done;
-	struct task_struct	*smart_thread;
+#if defined(CONFIG_PXA27x) || defined(CONFIG_PXA3xx)
+	/* PXA Overlay Framebuffer Support */
+	struct overlayfb_info  *overlay1fb;
+	struct overlayfb_info  *overlay2fb;
+	struct overlayfb_info  *cursorfb;
+	struct pxa2xx_v4l2ov2_dev *ov2_v4l2_dev;
+	void (*set_overlay1_ctrlr_state)(struct pxafb_info *, u_int);
+	void (*set_overlay2_ctrlr_state)(struct pxafb_info *, u_int);
+	void (*set_cursorfb_ctrlr_state)(struct pxafb_info *, u_int);
+	void (*ov2_handle_eof)(void);	
+	void (*ov2_handle_bra)(void);
 #endif
+
+	u_int		flags;
+	/* time unit is ns for following timing parameters */
+	u_long		wr_setup_time; /* A0 and CS Setup Time before LCD_PCLK_WR is asserted */
+	u_long		wr_pulse_width; /* LCD_PCLK_WR pulse width */
+	u_long		rd_setup_time; /* A0 and CS Setup Time before L_FCLK_RD is asserted */
+	u_long		rd_pulse_width; /* LCD_PCLK_RD pulse width */
+	u_long		op_hold_time; /* Output Hold time from L_FCLK_RD negation */
+	u_long		cmd_inh_time; /* Command Inhibit time between two writes */
+	u_int		sync_cnt; /* count of L_VSYNC asserted */
+	int			(*update_framedata)(struct fb_info *fbi);
 
 #ifdef CONFIG_CPU_FREQ
 	struct notifier_block	freq_transition;
 	struct notifier_block	freq_policy;
+#endif
+
+#ifdef CONFIG_FB_PXA_MINILCD
+        struct pxafb_minilcd_info minilcd_info;
 #endif
 };
 
@@ -140,6 +279,15 @@ struct pxafb_info {
 #define C_ENABLE_PM		(6)
 #define C_STARTUP		(7)
 
+/*
+ * Format of overlay 2
+ */
+#define OV2_FORMAT_RGB			(0)
+#define OV2_FORMAT_YUV444_PACKED	(1)
+#define OV2_FORMAT_YUV444_PLANAR	(2)
+#define OV2_FORMAT_YUV422_PLANAR	(3)
+#define OV2_FORMAT_YUV420_PLANAR	(4)
+
 #define PXA_NAME	"PXA"
 
 /*
@@ -147,5 +295,10 @@ struct pxafb_info {
  */
 #define MIN_XRES	64
 #define MIN_YRES	64
+
+#ifdef CONFIG_FB_PXA_MINILCD
+int pxafb_minilcd_ioctl(struct fb_info *, unsigned int, unsigned long);
+int pxafb_minilcd_register(struct fb_info *);
+#endif
 
 #endif /* __PXAFB_H__ */

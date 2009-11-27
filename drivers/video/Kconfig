@@ -1817,10 +1817,48 @@ config FB_PXA
 
 	  If unsure, say N.
 
-config FB_PXA_SMARTPANEL
-	bool "PXA Smartpanel LCD support"
-	default n
-	depends on FB_PXA
+config FB_PXA_OVERLAY
+	tristate "LCD overlay support"
+	depends on FB && ARCH_PXA && FB_PXA
+	---help---
+	   Frame buffer overlay driver
+
+config FB_PXA_MINILCD
+        bool "Mini-LCD Support"
+        depends on FB_PXA && PXA3xx && (!LITTLETON_SMART_PANEL)
+        ---help---
+          When the processor goes into low power mode S0/D1/C2 (Standby with
+          LCD refresh), the main LCD controller will power off. The Mini-LCD
+          controller will then be functional and continue to refresh the LCD
+          panel. If you want to enable this mode, say Y here.
+
+          If unsure, say N.
+choice
+        prompt "LCD type"
+        depends on FB_PXA
+
+config FB_PXA_LCD_QVGA
+        bool "QVGA(320x240)"
+
+config FB_PXA_LCD_VGA
+        bool "VGA (640x480)"
+
+endchoice
+
+choice
+        prompt "Pixel format"
+        depends on FB_PXA
+
+config FB_PXA_LCD_16BPP
+        bool "16bpp (RGB565)"
+
+config FB_PXA_LCD_18BPP
+        bool "18bpp (RGB666 packed)"
+
+config FB_PXA_LCD_19BPP
+        bool "19bpp (RGBT666 packed)"
+
+endchoice
 
 config FB_PXA_PARAMETERS
 	bool "PXA LCD command line parameters"

@@ -663,8 +663,8 @@ source "arch/arm/common/Kconfig"
 
 config FORCE_MAX_ZONEORDER
 	int
-	depends on SA1111
-	default "9"
+	depends on (SA1111 || PXA3xx)
+	default "12"
 
 menu "Bus support"
 
@@ -802,12 +802,18 @@ config PREEMPT
 	  Say Y here if you are building a kernel for a desktop, embedded
 	  or real-time system.  Say N if you are unsure.
 
+config GLOBAL_PREEMPT_NOTIFIERS
+        bool "Enable global preempt notifier"
+        depends on PREEMPT_NOTIFIERS
+        default y
+
 config HZ
 	int
 	default 128 if ARCH_L7200
 	default 200 if ARCH_EBSA110 || ARCH_S3C2410
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
 	default AT91_TIMER_HZ if ARCH_AT91
+	default 128 if ARCH_PXA && PXA_32KTIMER
 	default 100
 
 config AEABI
@@ -1174,6 +1180,77 @@ source "kernel/power/Kconfig"
 config ARCH_SUSPEND_POSSIBLE
 	def_bool y
 
+config PXA_DVFM
+	bool "PXA Processor High Level DVFM support"
+	depends on PM
+	default y
+	help
+	  This enables the dynamical frequency and voltage changes framework
+	  for PXA Processor series.
+
+config PXA3xx_DVFM
+	bool "PXA3xx Processor DVFM support"
+	depends on PM && PXA3xx && PXA_DVFM
+	select PXA3xx_ARAVA
+	select PXA3xx_MICCO
+	default y
+	help
+	  This implements the dynamical frequency and voltage changes features
+	  for PXA3xx Processor particularly.
+
+config PXA3xx_DVFM_STATS
+	bool "PXA3xx/PXA930 Processor DVFM Statistics support"
+	depends on PXA3xx_DVFM
+	select RELAY
+	select DEBUG_FS
+	default y
+	help
+	  This is used to collect statistics during the dynamic frequency
+	  and voltage changes
+
+config PXA3xx_PMU
+	bool "PXA3xx/PXA930 Processor PMU support"
+	default y
+	help
+	  PXA3xx/PXA930 provide Performance Monitor Unit to report
+	  CPU statistics info.
+
+config PXA3xx_PRM
+	bool "PXA3xx Processor Profiler Resource Manager"
+	depends on PXA3xx_DVFM && PXA3xx_PMU
+	default y
+	help
+	  This enables the PXA3xx Processor Profiler Resource Manager
+
+config IPM
+	bool "Marvell(R) Scalable Power Management"
+	depends on PXA3xx_PRM
+	default y
+	help
+	  Support Profiler and Daemon of Marvell(R) Scalable Power Management
+
+config IPM_DEEPIDLE
+	bool "PXA3xx/PXA930 Processor Deep Idle support"
+	depends on IPM
+	default y
+	help
+	  This enables the kernel support for PXA3xx/PXA930
+	  Processor Deep Idle (D0CS Idle)
+
+config IPM_D2IDLE
+	bool "Support PXA3xx/PXA930 Processor D2 Mode as Idle"
+	depends on IPM && PXA_32KTIMER
+	default y
+	help
+	  This enables kernel support PXA3xx/PXA930 D2 idle
+
+config IPM_CGIDLE
+	bool "Support PXA935 Processor Clock Gated Mode as Idle"
+	depends on IPM && PXA_32KTIMER
+	default y
+	help
+	  This enables kernel support PXA935 D2 idle
+
 endmenu
 
 source "net/Kconfig"
@@ -1263,6 +1340,8 @@ source "drivers/memstick/Kconfig"
 source "drivers/accessibility/Kconfig"
 
 source "drivers/leds/Kconfig"
+
+source "drivers/switch/Kconfig"
 
 source "drivers/rtc/Kconfig"
 

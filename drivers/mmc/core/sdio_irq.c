@@ -73,6 +73,7 @@ static int sdio_irq_thread(void *_host)
 	int ret;
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
+	current->flags |= PF_NOFREEZE;
 
 	/*
 	 * We want to allow for SDIO cards to work even on non SDIO

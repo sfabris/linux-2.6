@@ -214,3 +214,29 @@ config BACKLIGHT_SAHARA
 	help
 	  If you have a Tabletkiosk Sahara Touch-iT, say y to enable the
 	  backlight driver.
+
+config BACKLIGHT_MICCO
+	bool "MICCO LCD Backlight Driver"
+	depends on BACKLIGHT_CLASS_DEVICE && PXA3xx && PXA3xx_MICCO
+	help
+	  Please say Y here if want to enable LCD backlight driver
+
+config BACKLIGHT_MICCO_KP
+	bool "MICCO Keypad Backlight Driver"
+	depends on BACKLIGHT_CLASS_DEVICE && PXA3xx && PXA3xx_MICCO
+	help
+	  Please say Y here if want to enable Keypad backlight driver
+
+config BACKLIGHT_PXA3XX_PWM
+	bool "PXA3XX Pulse Width Modulator Backlight Driver"
+	depends on BACKLIGHT_CLASS_DEVICE && PXA3xx
+	help
+	  Please say Y here if want to enable pxa3xx Pulse Width Modulator
+	  backlight driver
+
+config BACKLIGHT_PXA3XX_GPIO
+	bool "PXA3XX GPIO Backlight Driver"
+	depends on BACKLIGHT_CLASS_DEVICE && PXA3xx
+	help
+	  Please say Y here if want to enable pxa3xx GPIO backlight driver
+

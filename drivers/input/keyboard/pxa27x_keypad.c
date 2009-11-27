@@ -32,6 +32,14 @@
 #include <mach/hardware.h>
 #include <mach/pxa27x_keypad.h>
 
+#if defined(CONFIG_PXA3xx_DVFM)
+#include <linux/notifier.h>
+#include <linux/timer.h>
+#include <mach/dvfm.h>
+#include <mach/pxa3xx_dvfm.h>
+#include <mach/pxa3xx_pm.h>
+#endif
+
 /*
  * Keypad Controller registers
  */
@@ -47,6 +55,11 @@
 #define KPASMKP2        0x0038
 #define KPASMKP3        0x0040
 #define KPKDI           0x0048
+
+#ifdef CONFIG_CPU_PXA930
+#define ERCR_OFF	0xc
+#define SBCR_OFF	0x4
+#endif
 
 /* bit definitions */
 #define KPC_MKRN(n)	((((n) - 1) & 0x7) << 26) /* matrix key row number */
@@ -95,7 +108,30 @@
 #define keypad_readl(off)	__raw_readl(keypad->mmio_base + (off))
 #define keypad_writel(off, v)	__raw_writel((v), keypad->mmio_base + (off))
 
+#ifdef CONFIG_CPU_PXA930
+#define ercr_readl(off)		__raw_readl(keypad->ercr_base + (off))
+#define ercr_writel(off, v)	__raw_writel((v), keypad->ercr_base + (off))
+#endif
+
 #define MAX_MATRIX_KEY_NUM	(8 * 8)
+
+#if defined(CONFIG_PXA3xx_DVFM)
+#define D2_STABLE_JIFFIES               6
+static int keypad_notifier_freq(struct notifier_block *nb,
+		unsigned long val, void *data);
+static struct notifier_block notifier_freq_block = {
+	.notifier_call = keypad_notifier_freq,
+};
+
+static struct dvfm_lock dvfm_lock = {
+	.lock		= SPIN_LOCK_UNLOCKED,
+	.dev_idx	= -1,
+	.count		= 0,
+};
+
+static struct timer_list kp_timer;
+#endif
+
 
 struct pxa27x_keypad {
 	struct pxa27x_keypad_platform_data *pdata;
@@ -103,6 +139,10 @@ struct pxa27x_keypad {
 	struct clk *clk;
 	struct input_dev *input_dev;
 	void __iomem *mmio_base;
+#ifdef CONFIG_CPU_PXA930
+	void __iomem *ercr_base;
+	u32 prev_ercr;
+#endif
 
 	int irq;
 
@@ -118,6 +158,11 @@ struct pxa27x_keypad {
 	int rotary_rel_code[2];
 	int rotary_up_key[2];
 	int rotary_down_key[2];
+#ifdef CONFIG_CPU_PXA930
+	int enhanced_rotary_rel_code;
+	int enhanced_rotary_up_key;
+	int enhanced_rotary_down_key;
+#endif
 };
 
 static void pxa27x_keypad_build_keycode(struct pxa27x_keypad *keypad)
@@ -146,6 +191,11 @@ static void pxa27x_keypad_build_keycode(struct pxa27x_keypad *keypad)
 	keypad->rotary_down_key[1] = pdata->rotary1_down_key;
 	keypad->rotary_rel_code[0] = pdata->rotary0_rel_code;
 	keypad->rotary_rel_code[1] = pdata->rotary1_rel_code;
+#ifdef CONFIG_CPU_PXA930
+	keypad->enhanced_rotary_up_key = pdata->enhanced_rotary_up_key;
+	keypad->enhanced_rotary_down_key = pdata->enhanced_rotary_down_key;
+	keypad->enhanced_rotary_rel_code = pdata->enhanced_rotary_rel_code;
+#endif
 
 	if (pdata->enable_rotary0) {
 		if (pdata->rotary0_up_key && pdata->rotary0_down_key) {
@@ -162,6 +212,14 @@ static void pxa27x_keypad_build_keycode(struct pxa27x_keypad *keypad)
 		} else
 			set_bit(pdata->rotary1_rel_code, input_dev->relbit);
 	}
+
+#ifdef CONFIG_CPU_PXA930
+	if (pdata->enhanced_rotary_up_key && pdata->enhanced_rotary_down_key) {
+		set_bit(pdata->enhanced_rotary_up_key, input_dev->keybit);
+		set_bit(pdata->enhanced_rotary_down_key, input_dev->keybit);
+	} else
+		set_bit(pdata->enhanced_rotary_rel_code, input_dev->relbit);
+#endif
 }
 
 static inline unsigned int lookup_matrix_keycode(
@@ -170,6 +228,8 @@ static inline unsigned int lookup_matrix_keycode(
 	return keypad->matrix_keycodes[(row << 3) + col];
 }
 
+
+extern int is_android(void);
 static void pxa27x_keypad_scan_matrix(struct pxa27x_keypad *keypad)
 {
 	struct pxa27x_keypad_platform_data *pdata = keypad->pdata;
@@ -227,9 +287,12 @@ scan:
 			input_report_key(keypad->input_dev,
 				lookup_matrix_keycode(keypad, row, col),
 				new_state[col] & (1 << row));
+			printk("key 0x%x reported\n", lookup_matrix_keycode(keypad, row, col));
 		}
 	}
-	input_sync(keypad->input_dev);
+	
+	if (!is_android())
+		input_sync(keypad->input_dev);
 	memcpy(keypad->matrix_key_state, new_state, sizeof(new_state));
 }
 
@@ -244,6 +307,58 @@ static inline int rotary_delta(uint32_t kprec)
 	else
 		return (kprec & 0xff) - 0x7f;
 }
+
+#ifdef	CONFIG_CPU_PXA930
+/*Read enhanced rotary key*/
+static int read_enh_rot_key(struct pxa27x_keypad *keypad, int *key)
+{
+	u32 curr_ercr = ercr_readl(ERCR_OFF) & 0xf;
+
+	/*assume that increases 10 at a time is impossible,
+	otherwise overflow/underflow happens.*/
+	if (0x0A < abs(curr_ercr - keypad->prev_ercr))
+		if (curr_ercr > keypad->prev_ercr)	/*Underflow happens*/
+			*key = keypad->enhanced_rotary_up_key;
+		else					/*Overflow happens*/
+			*key = keypad->enhanced_rotary_down_key;
+
+	else				/*Normal increament or decreament*/
+		*key = curr_ercr > keypad->prev_ercr ?
+			keypad->enhanced_rotary_down_key:
+			keypad->enhanced_rotary_up_key;
+
+	keypad->prev_ercr = curr_ercr;
+
+	return 0;
+}
+
+static void clear_sbcr(struct pxa27x_keypad *keypad)
+{
+	ercr_writel(SBCR_OFF, ercr_readl(SBCR_OFF) | (1 << 5));
+	ercr_writel(SBCR_OFF, ercr_readl(SBCR_OFF) & ~(1 << 5));
+}
+
+static irqreturn_t enhanced_rotary_interrupt(int irq, void *dev_id)
+{
+	struct pxa27x_keypad *keypad = dev_id;
+	int key;
+
+	read_enh_rot_key(keypad, &key);
+	clear_sbcr(keypad);
+
+	if ((key == keypad->enhanced_rotary_up_key) ||
+			(key == keypad->enhanced_rotary_down_key)) {
+		input_report_key(keypad->input_dev, key, 1);
+		input_report_key(keypad->input_dev, key, 0);
+		return IRQ_HANDLED;
+	}
+
+	input_sync(keypad->input_dev);
+
+	return IRQ_HANDLED;
+}
+#endif
+
 
 static void report_rotary_event(struct pxa27x_keypad *keypad, int r, int delta)
 {
@@ -366,6 +481,12 @@ static void pxa27x_keypad_config(struct pxa27x_keypad *keypad)
 	keypad_writel(KPC, kpc | KPC_RE_ZERO_DEB);
 	keypad_writel(KPREC, DEFAULT_KPREC);
 	keypad_writel(KPKDI, pdata->debounce_interval);
+
+#ifdef CONFIG_CPU_PXA930
+	if ((cpu_is_pxa930() || cpu_is_pxa935()) &&  \
+			pdata->enable_enhanced_rotary)
+		clear_sbcr(keypad);
+#endif
 }
 
 static int pxa27x_keypad_open(struct input_dev *dev)
@@ -387,15 +508,90 @@ static void pxa27x_keypad_close(struct input_dev *dev)
 	clk_disable(keypad->clk);
 }
 
+#if defined(CONFIG_PXA3xx_DVFM)
+static void set_dvfm_constraint(void)
+{
+	spin_lock_irqsave(&dvfm_lock.lock, dvfm_lock.flags);
+	if (dvfm_lock.count++ == 0) {
+		/* Disable lowpower mode */
+		dvfm_disable_op_name("D1", dvfm_lock.dev_idx);
+		dvfm_disable_op_name("D2", dvfm_lock.dev_idx);
+		if (cpu_is_pxa935())
+			dvfm_disable_op_name("CG", dvfm_lock.dev_idx);
+	}
+	spin_unlock_irqrestore(&dvfm_lock.lock, dvfm_lock.flags);
+}
+
+static void unset_dvfm_constraint(void)
+{
+	spin_lock_irqsave(&dvfm_lock.lock, dvfm_lock.flags);
+	if (dvfm_lock.count == 0) {
+		printk(KERN_WARNING "Keypad constraint has been removed.\n");
+	} else if (--dvfm_lock.count == 0) {
+		/* Enable lowpower mode */
+		dvfm_enable_op_name("D1", dvfm_lock.dev_idx);
+		dvfm_enable_op_name("D2", dvfm_lock.dev_idx);
+		if (cpu_is_pxa935())
+			dvfm_enable_op_name("CG", dvfm_lock.dev_idx);
+	}
+	spin_unlock_irqrestore(&dvfm_lock.lock, dvfm_lock.flags);
+}
+
+/*
+ * FIXME: Here a timer is used to disable entering D1/D2 for a while.
+ * Because keypad event wakeup system from D1/D2 mode. But keypad device
+ * can't detect the interrupt since it's in standby state.
+ * Keypad device need time to detect it again. So we use a timer here.
+ * D1/D2 idle is determined by idle time. It's better to comine these
+ * timers together.
+ */
+static void keypad_timer_handler(unsigned long data)
+{
+	unset_dvfm_constraint();
+}
+
+extern void get_wakeup_source(pm_wakeup_src_t *);
+
+static int keypad_notifier_freq(struct notifier_block *nb,
+		unsigned long val, void *data)
+{
+	struct dvfm_freqs *freqs = (struct dvfm_freqs *)data;
+	struct op_info *new = NULL;
+	struct dvfm_md_opt *op;
+	pm_wakeup_src_t src;
+
+	if (freqs)
+		new = &freqs->new_info;
+	else
+		return 0;
+
+	op = (struct dvfm_md_opt *)new->op;
+	if (val == DVFM_FREQ_POSTCHANGE) {
+		if ((op->power_mode == POWER_MODE_D1) ||
+				(op->power_mode == POWER_MODE_D2) ||
+				(op->power_mode == POWER_MODE_CG)) {
+			get_wakeup_source(&src);
+			if (src.bits.mkey || src.bits.dkey) {
+				/* If keypad event happens and wake system
+				 * from D1/D2. Disable D1/D2 to make keypad
+				 * work for a while.
+				 */
+				kp_timer.expires = jiffies + D2_STABLE_JIFFIES;
+				add_timer(&kp_timer);
+				set_dvfm_constraint();
+			}
+		}
+	}
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_PM
 static int pxa27x_keypad_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct pxa27x_keypad *keypad = platform_get_drvdata(pdev);
 
 	clk_disable(keypad->clk);
-
-	if (device_may_wakeup(&pdev->dev))
-		enable_irq_wake(keypad->irq);
 
 	return 0;
 }
@@ -404,9 +600,6 @@ static int pxa27x_keypad_resume(struct platform_device *pdev)
 {
 	struct pxa27x_keypad *keypad = platform_get_drvdata(pdev);
 	struct input_dev *input_dev = keypad->input_dev;
-
-	if (device_may_wakeup(&pdev->dev))
-		disable_irq_wake(keypad->irq);
 
 	mutex_lock(&input_dev->mutex);
 
@@ -433,6 +626,7 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 	struct input_dev *input_dev;
 	struct resource *res;
 	int irq, error;
+	int irq2;
 
 	keypad = kzalloc(sizeof(struct pxa27x_keypad), GFP_KERNEL);
 	if (keypad == NULL) {
@@ -500,6 +694,10 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 	input_set_drvdata(input_dev, keypad);
 
 	input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REP);
+	if (is_android())
+		input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+	else
+		input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REP);
 	if ((keypad->pdata->enable_rotary0 &&
 			keypad->pdata->rotary0_rel_code) ||
 	    (keypad->pdata->enable_rotary1 &&
@@ -510,6 +708,16 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 	pxa27x_keypad_build_keycode(keypad);
 	platform_set_drvdata(pdev, keypad);
 
+
+	if (is_android()) {
+		set_bit(EV_KEY, input_dev->evbit);
+		set_bit(EV_REL, input_dev->evbit);
+		set_bit(EV_ABS, input_dev->evbit);
+		bitmap_fill(input_dev->keybit, KEY_MAX);
+		bitmap_fill(input_dev->relbit, REL_MAX);
+		bitmap_fill(input_dev->absbit, ABS_MAX);
+	}
+
 	error = request_irq(irq, pxa27x_keypad_irq_handler, IRQF_DISABLED,
 			    pdev->name, keypad);
 	if (error) {
@@ -517,19 +725,58 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 		goto failed_free_dev;
 	}
 
+#if defined(CONFIG_PXA3xx_DVFM)
+	dvfm_register("Keypad", &dvfm_lock.dev_idx);
+	dvfm_register_notifier(&notifier_freq_block,
+			DVFM_FREQUENCY_NOTIFIER);
+	init_timer(&kp_timer);
+	kp_timer.function = keypad_timer_handler;
+	kp_timer.data = 0;
+#endif
+
+#ifdef CONFIG_CPU_PXA930
+	/* Enhanced Rotary Controller */
+	irq2 = -1;
+	if ((cpu_is_pxa930() || cpu_is_pxa935()) &&  \
+			keypad->pdata->enable_enhanced_rotary) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+		keypad->ercr_base = ioremap_nocache(res->start, res_size(res));
+		if (keypad->ercr_base == NULL) {
+			dev_err(&pdev->dev, "failed to ioremap registers\n");
+			error = -ENXIO;
+			goto failed_free_irq;
+		}
+		irq2 = platform_get_irq(pdev, 1);
+		if (irq2 < 0) {
+			dev_err(&pdev->dev, "failed to get"
+				" enhanced rotary controller irq\n");
+			error = -ENXIO;
+			goto failed_free_irq;
+		}
+		error = request_irq(irq2, enhanced_rotary_interrupt,
+			    IRQF_DISABLED, "Enhanced Rotary", keypad);
+		if (error) {
+			dev_err(&pdev->dev, "failed to request Enhanced Rotary Controller IRQ\n");
+			goto failed_free_irq2;
+		}
+	}
+#endif
+ 
 	keypad->irq = irq;
 
 	/* Register the input device */
 	error = input_register_device(input_dev);
 	if (error) {
 		dev_err(&pdev->dev, "failed to register input device\n");
-		goto failed_free_irq;
+		goto failed_free_irq2;
 	}
 
 	device_init_wakeup(&pdev->dev, 1);
 
 	return 0;
 
+failed_free_irq2:
+	free_irq(irq2, pdev);
 failed_free_irq:
 	free_irq(irq, pdev);
 	platform_set_drvdata(pdev, NULL);
@@ -560,6 +807,12 @@ static int __devexit pxa27x_keypad_remove(struct platform_device *pdev)
 	input_free_device(keypad->input_dev);
 
 	iounmap(keypad->mmio_base);
+
+#if defined(CONFIG_PXA3xx_DVFM)
+	dvfm_unregister_notifier(&notifier_freq_block,
+			DVFM_FREQUENCY_NOTIFIER);
+	dvfm_unregister("Keypad", &dvfm_lock.dev_idx);
+#endif
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(res->start, res_size(res));
@@ -593,7 +846,7 @@ static void __exit pxa27x_keypad_exit(void)
 	platform_driver_unregister(&pxa27x_keypad_driver);
 }
 
-module_init(pxa27x_keypad_init);
+late_initcall(pxa27x_keypad_init);
 module_exit(pxa27x_keypad_exit);
 
 MODULE_DESCRIPTION("PXA27x Keypad Controller Driver");

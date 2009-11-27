@@ -159,7 +159,11 @@ static struct usb_device_descriptor device_desc = {
 	.bcdUSB =		__constant_cpu_to_le16 (0x0200),
 
 	.bDeviceClass =		USB_CLASS_COMM,
+#ifndef CONFIG_USB_COMPOSITE
 	.bDeviceSubClass =	0,
+#else
+	.bDeviceSubClass = 	USB_CDC_SUBCLASS_ETHERNET,
+#endif
 	.bDeviceProtocol =	0,
 	/* .bMaxPacketSize0 = f(hardware) */
 

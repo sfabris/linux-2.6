@@ -17,7 +17,43 @@
 #include <linux/dma-mapping.h>
 
 #include <mach/hardware.h>
-#include <mach/mfp-pxa930.h>
+#include <mach/pxa3xx-regs.h>
+#include <mach/mfp-pxa9xx.h>
+#include <mach/pxa3xx_pm.h>
+#include <mach/pxa9xx_u2o.h>
+#include <asm/mach-types.h>
+#include <asm/delay.h>
+#include "generic.h"
+#include "devices.h"
+#include "clock.h"
+
+#define ARRAY_AND_SIZE(x)	(x), ARRAY_SIZE(x)
+static int comm_v75 = 0;
+static int __init comm_v75_setup(char *__unused)
+{
+	comm_v75 = 1;
+	return 1;
+}
+__setup("comm_v75", comm_v75_setup);
+
+int is_comm_v75(void)
+{
+	return comm_v75;
+}
+EXPORT_SYMBOL(is_comm_v75);
+
+static int uart_gpio = 0;
+static int __init uart_gpio_setup(char *__unused)
+{
+	uart_gpio = 1;
+	return 0;
+}
+__setup("uart_gpio", uart_gpio_setup);
+
+int is_uart_gpio(void)
+{
+	return uart_gpio;
+}
 
 static struct pxa3xx_mfp_addr_map pxa930_mfp_addr_map[] __initdata = {
 
@@ -118,8 +154,8 @@ static struct pxa3xx_mfp_addr_map pxa930_mfp_addr_map[] __initdata = {
 	MFP_ADDR(GPIO94, 0x068c),
 	MFP_ADDR(GPIO95, 0x06a8),
 	MFP_ADDR(GPIO96, 0x06b8),
-	MFP_ADDR(GPIO97, 0x0410),
-	MFP_ADDR(GPIO98, 0x0418),
+	MFP_ADDR(GPIO97, 0x0418),
+	MFP_ADDR(GPIO98, 0x0410),
 	MFP_ADDR(GPIO99, 0x041c),
 	MFP_ADDR(GPIO100, 0x0414),
 	MFP_ADDR(GPIO101, 0x0408),
@@ -177,11 +213,424 @@ static struct pxa3xx_mfp_addr_map pxa930_mfp_addr_map[] __initdata = {
 	MFP_ADDR_END,
 };
 
+#ifdef CONFIG_CPU_PXA935
+static struct pxa3xx_mfp_addr_map pxa935_mfp_addr_map[] __initdata = {
+	MFP_ADDR(GPIO159, 0x0524),
+	MFP_ADDR(GPIO163, 0x0534),
+	MFP_ADDR(GPIO167, 0x0544),
+	MFP_ADDR(GPIO168, 0x0548),
+	MFP_ADDR(GPIO169, 0x054c),
+	MFP_ADDR(GPIO170, 0x0550),
+	MFP_ADDR(GPIO171, 0x0554),
+	MFP_ADDR(GPIO172, 0x0558),
+	MFP_ADDR(GPIO173, 0x055c),
+
+	MFP_ADDR_END,
+};
+#endif
+
+/*
+ * Tavor PV series processors device configuration
+ *                    U2O/U2H  U2D  UDC/UHC  MMC3-5  MMC1/2  MVED
+ *  P                    N      Y      Y        N      Y      N
+ *  PV-1.1/P65e1.1       N	N      Y        N      Y      N
+ *  PV-/P65e (PXA935)    Y      N      N        N      Y      N
+ *  PV (PXA940)          Y      N      N        Y      N      Y
+ */
+#define DEVICES_ON_TAVOR_P	(device_u2d | device_udc | device_mmc | device_uhc)
+
+int device_is_enabled(int device)
+{
+
+	if (cpu_is_pxa930()) {
+		if (device & DEVICES_ON_TAVOR_P)
+			return 1;
+	}
+#ifdef CONFIG_CPU_PXA935
+
+#define SER_FUSE_REG6  		__REG(0x40f50218)
+#define DEVICE_DIS_MASK		0x07FFFFFC
+
+	if (cpu_is_pxa935()) {
+		int device_dis;
+
+		device_dis  = SER_FUSE_REG6 & DEVICE_DIS_MASK;
+
+		//FIXME: hard coding to enable old mmc controller
+//#define CONFIG_FORCE_FUSE_MMC_OLD
+#ifdef CONFIG_FORCE_FUSE_MMC_OLD
+		device_dis |= device_mmc_new;
+#else
+		if (!(device_dis & device_mmc_new))
+			device_dis |= device_mmc;
+#endif
+
+		if (!(device & device_dis))
+			return 1;
+	}
+
+#endif
+	return 0;
+}
+
+static struct resource pxa930_resources_trkball[] = {
+	[0] = {
+		.start	= 0x42404000,
+		.end	= 0x424040ff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_TRKBALL,
+		.end	= IRQ_TRKBALL,
+		.flags	= IORESOURCE_IRQ,
+	}
+};
+
+struct platform_device pxa930_device_trkball = {
+	.name 		= "pxa930-trkball",
+	.id 		= 0,
+	.num_resources	= ARRAY_SIZE(pxa930_resources_trkball),
+	.resource	= pxa930_resources_trkball,
+};
+
+static u64 pxa930_acipc_dma_mask = DMA_BIT_MASK(32);
+
+static struct resource pxa930_resource_acipc[] = {
+	[0] = {
+		.start	= 0x42403000,
+		.end	= 0x424030ff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_ACIPC0,
+		.end	= IRQ_ACIPC0,
+		.flags	= IORESOURCE_IRQ,
+	},
+	[2] = {
+		.start	= IRQ_ACIPC1,
+		.end	= IRQ_ACIPC1,
+		.flags	= IORESOURCE_IRQ,
+	},
+	[3] = {
+		.start	= IRQ_ACIPC2,
+		.end	= IRQ_ACIPC2,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device pxa930_acipc_device = {
+	.name		= "pxa930-acipc",
+	.id		= -1,
+	.dev		= {
+		.dma_mask = &pxa930_acipc_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+	},
+	.resource	= pxa930_resource_acipc,
+	.num_resources	= ARRAY_SIZE(pxa930_resource_acipc),
+};
+
+static struct platform_device *devices[] __initdata = {
+	&pxa930_acipc_device,
+};
+
+static unsigned char __iomem *bpb_membase;
+
+/*
+ * Query whether the specified pin waked up system.
+ *
+ * return 1 -- yes, 0 -- no, negative -- failure
+ */
+int pxa930_query_gwsr(int pin)
+{
+	int off, ret;
+	
+	if (pin < 0)
+		return -EINVAL;
+	off = pin / 32 + 1;
+	/* read data from GWSR(x), x is [1..4] */
+	ret = __raw_readl(bpb_membase + GWSR(off));
+	ret = (ret >> (pin - (off - 1)* 32)) & 1;
+	return ret;
+}
+
+static struct clk pxa930_mmc_clks[] = {
+	PXA3xx_CKEN("MMCCLK", MMC1, 19500000, 0, &pxa_device_mci.dev),
+	PXA3xx_CKEN("MMCCLK", MMC2, 19500000, 0, &pxa3xx_device_mci2.dev),
+};
+
+#ifdef CONFIG_CPU_PXA935
+static struct clk pxa940_mved_clks[] = {
+	PXA3xx_CKEN("MVEDCLK", MVED, 152000000, 0, &pxa3xx_device_mved.dev),
+};
+
+static void clk_pxa9xx_mmc_enable(struct clk *clk)
+{
+	unsigned long mask = 1ul << (clk->cken & 0x1f);
+
+	local_irq_disable();
+
+	CKENC |= CKEN_AXI | mask;
+
+	local_irq_enable();
+}
+
+static void clk_pxa9xx_mmc_disable(struct clk *clk)
+{
+	unsigned long mask = 1ul << (clk->cken & 0x1f);
+
+	local_irq_disable();
+
+	CKENC &= ~mask;
+
+	local_irq_enable();
+}
+
+static const struct clkops clk_pxa9xx_mmc_ops = {
+	.enable		= clk_pxa9xx_mmc_enable,
+	.disable	= clk_pxa9xx_mmc_disable,
+};
+
+static struct clk pxa9xx_mmc_clks[] = {
+	PXA3xx_CK("PXA9XX_MMCCLK", MMC3_AXI, &clk_pxa9xx_mmc_ops, &pxa9xx_device_mci3.dev),
+	PXA3xx_CK("PXA9XX_MMCCLK", MMC4_AXI, &clk_pxa9xx_mmc_ops, &pxa9xx_device_mci4.dev),
+	PXA3xx_CK("PXA9XX_MMCCLK", MMC5_AXI, &clk_pxa9xx_mmc_ops, &pxa9xx_device_mci5.dev),
+};
+
+/********************************************************************
+ * USB 2.0 OTG controller 
+ */
+
+static void clk_pxa9xx_u2o_enable(struct clk *clk)
+{
+	unsigned long mask = 1ul << (clk->cken & 0x1f);
+
+	local_irq_disable();
+
+	CKENC |= mask;
+	/* ACCR1 */
+	ACCR1 |= ACCR1_PU_OTG|ACCR1_PU_PLL|ACCR1_PU;
+
+	local_irq_enable();
+}
+
+static void clk_pxa9xx_u2o_disable(struct clk *clk)
+{
+	unsigned long mask = 1ul << (clk->cken & 0x1f);
+
+	local_irq_disable();
+
+	CKENC &= ~mask;
+	/* ACCR1 */
+	ACCR1 &= ~(ACCR1_PU_OTG|ACCR1_PU_PLL|ACCR1_PU);
+
+	local_irq_enable();
+}
+
+static const struct clkops clk_pxa9xx_u2o_ops = {
+	.enable		= clk_pxa9xx_u2o_enable,
+	.disable	= clk_pxa9xx_u2o_disable,
+};
+
+static struct clk pxa9xx_u2o_clk[] = {
+	PXA3xx_CK("U2OCLK", U2O, &clk_pxa9xx_u2o_ops, NULL),
+};
+
+
+static struct pxa9xx_u2o_mach_info pxa_u2o_info;
+
+static u64 u2o_dma_mask = ~(u32)0;
+
+static struct resource pxa9xx_u2o_resources[] = {
+	[0] = {
+		.start	= 0x55500000,
+		.end	= 0x5550ffff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_U2O,
+		.end	= IRQ_U2O,
+		.flags	= IORESOURCE_IRQ,
+	},
+
+};
+
+static struct platform_device pxa9xx_device_u2o = {
+	.name		= "pxa9xx-u2o",
+	.id		= -1,
+	.resource	= pxa9xx_u2o_resources,
+	.num_resources	= ARRAY_SIZE(pxa9xx_u2o_resources),
+	.dev		=  {
+		.platform_data	= &pxa_u2o_info,
+		.dma_mask	= &u2o_dma_mask,
+		.coherent_dma_mask = 0xffffffff,
+	}
+};
+
+static struct resource pxa9xx_u2otg_resources[] = {
+};
+
+static struct platform_device pxa9xx_device_u2otg = {
+	.name		= "pxa9xx-u2otg",
+	.id		= -1,
+	.resource	= pxa9xx_u2o_resources,
+	.num_resources	= ARRAY_SIZE(pxa9xx_u2otg_resources),
+	.dev		=  {
+		.platform_data	= &pxa_u2o_info,
+	}
+};
+
+void __init pxa_set_u2o_info(struct pxa9xx_u2o_mach_info *info)
+{
+	pxa_register_device(&pxa9xx_device_u2o, info);
+}
+
+void __init pxa_set_u2otg_info(struct pxa9xx_u2o_mach_info *info)
+{
+	pxa_register_device(&pxa9xx_device_u2otg, info);
+}
+
+void pxa9xx_u2o_xcvr_init(void)
+{	
+	static int init_done;
+	int count;
+	volatile unsigned int reg;
+
+	if (init_done) {
+		printk("re-init phy\n\n");
+		/* return; */
+	}
+
+	/* check whether U2PPLL[READY] is set */
+	count = 100000;
+	do {
+		count--;
+	} while (!(U2PPLL & U2PPLL_READY) && count);
+	if (count <= 0) {
+		printk("%s TIMEOUT for U2PPLL[READY]\n", __func__);
+	}
+
+	/* PLL VCO and TX Impedance Calibration Timing:
+	 *
+	 * PU             _____|----------------------------------|
+	 * VOCAL STAR     ______________|--|______________________|
+	 * REG_RCAL_START ___________________________|--|_________|
+	 *                     | 200us  |40| 200us   |40| 200us   |USB PHY READY
+	 */
+
+	/* SET REG_ARC_DPDM_MODE BIT OF U2PT0 */
+	U2PT0 |= U2PT0_REG_ARC_DPDM_MODE; 
+	reg = U2PT0;
+
+	/* U2PPLL */
+	U2PPLL &= ~(U2PPLL_ICP_MASK | U2PPLL_KVCO_MASK);
+	if (machine_is_saar())
+		U2PPLL |= (0x7<<U2PPLL_ICP_SHIFT) | (0x7<<U2PPLL_KVCO_SHIFT) \
+			| U2PPLL_KVCO_EXT/* | U2PPLL_CLK_BLK_EN*/;
+	else
+		U2PPLL |= (0x6<<U2PPLL_ICP_SHIFT) | (0x4<<U2PPLL_KVCO_SHIFT) \
+			| U2PPLL_KVCO_EXT | U2PPLL_CLK_BLK_EN;
+	reg = U2PPLL;
+
+	/* U2PRX, program squelch threshold to rise minumum 
+	 * sensitivity for receiving
+	 */
+	if (machine_is_saar()) {
+		U2PRX &= ~(U2PRX_SQ_THRESH_MASK);
+		/* U2PRX |= (0x7 << U2PRX_SQ_THRESH_SHIFT); SV suggest value */
+		U2PRX |= (0xf << U2PRX_SQ_THRESH_SHIFT);
+		reg = U2PRX;
+	}
+
+	/* IVREF */
+	U2IVREF &= ~(U2IVREF_BG_VSEL_MASK | U2IVREF_RXVDD18_MASK);
+	udelay(200);
+
+	/* U2PTX */
+	U2PTX |= U2PTX_RCAL_START;
+	reg = U2PTX;
+	udelay(200);
+	U2PTX &= ~U2PTX_RCAL_START;
+	udelay(200);
+	
+	/* Make sure PHY is ready */
+	count = 100000;
+	do {
+		count--;
+	} while (!(U2PPLL & U2PPLL_READY) && count);
+	if (count <= 0) {
+		printk("%s TIMEOUT for U2PPLL[READY]\n", __func__);
+	}
+	
+	init_done = 1;
+}
+#endif
+
+/********************************************************************/
+
 static int __init pxa930_init(void)
 {
-	if (cpu_is_pxa930()) {
+	if (cpu_is_pxa930() || cpu_is_pxa935()) {
+		if (cpu_is_pxa930()) {
+			clks_register(ARRAY_AND_SIZE(pxa930_mmc_clks));
+			CKENA &= ~((1 << CKEN_UDC) | (1 << CKEN_USB2)
+				| (1 << CKEN_AC97) | (1 << CKEN_BOOT)
+				| (1 << CKEN_CIR) | (1 << CKEN_CAMERA)
+				| (1 << CKEN_SSP1) | (1 << CKEN_SSP2)
+				| (1 << CKEN_SSP3) | (1 << CKEN_SSP4)
+				| (1 << CKEN_USIM0) | (1 << CKEN_USIM1)
+				| (1 << CKEN_MMC1) | (1 << CKEN_MMC2)
+				| (1 << CKEN_USBH) | (1 << CKEN_TPM));
+			CKENB |= (1 << (CKEN_HSIO2 - 32));
+	                CKENB &= ~((1 << (CKEN_MINI_IM - 32))
+				| (1 << (CKEN_MINI_LCD - 32))
+				| (1 << (CKEN_1WIRE - 32))
+				| (1 << (CKEN_HSIOGCU - 32))
+				| (1 << (CKEN_PWM0 - 32))
+				| (1 << (CKEN_PWM1 - 32)));
+		}
+
+		if (cpu_is_pxa935()) {
+			if (device_is_enabled(device_mmc))
+				clks_register(ARRAY_AND_SIZE(pxa930_mmc_clks));
+
+			if (device_is_enabled(device_mmc_new))
+				clks_register(ARRAY_AND_SIZE(pxa9xx_mmc_clks));
+
+			if (device_is_enabled(device_mved))
+				clks_register(ARRAY_AND_SIZE(pxa940_mved_clks));
+			
+			if (device_is_enabled(device_u2o))
+				clks_register(ARRAY_AND_SIZE(pxa9xx_u2o_clk));
+
+			CKENA &= ~((1 << CKEN_UDC) | (1 << CKEN_USB2)
+				| (1 << CKEN_AC97) | (1 << CKEN_BOOT)
+				| (1 << CKEN_CIR) | (1 << CKEN_CAMERA)
+				| (1 << CKEN_SSP1) | (1 << CKEN_SSP2)
+				| (1 << CKEN_SSP3) | (1 << CKEN_SSP4)
+				| (1 << CKEN_USIM0) | (1 << CKEN_USIM1)
+				| (1 << CKEN_MMC1) | (1 << CKEN_MMC2)
+				| (1 << CKEN_USBH));
+	                CKENB &= ~((1 << (CKEN_MINI_IM - 32))
+				| (1 << (CKEN_MINI_LCD - 32))
+				| (1 << (CKEN_MVED - 32))
+				| (1 << (CKEN_HSIO2 - 32))
+				| (1 << (CKEN_1WIRE - 32))
+				| (1 << (CKEN_PWM0 - 32))
+				| (1 << (CKEN_PWM1 - 32)));
+			CKENC &= ~((1 << (CKEN_U2H2 - 64))
+				| (1 << (CKEN_U2H3 - 64))
+				| (1 << (CKEN_U2H2_AXI - 64))
+				| (1 << (CKEN_U2H3_AXI - 64)));
+		}
+
+		bpb_membase = ioremap(BPB_START, BPB_END - BPB_START + 1);
 		pxa3xx_init_mfp();
 		pxa3xx_mfp_init_addr(pxa930_mfp_addr_map);
+
+		if (cpu_is_pxa935())
+			pxa3xx_mfp_init_addr(pxa935_mfp_addr_map);
+
+		return platform_add_devices(devices, ARRAY_SIZE(devices));
 	}
 
 	return 0;

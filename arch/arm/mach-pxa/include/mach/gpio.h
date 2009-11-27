@@ -34,7 +34,7 @@
 /* NOTE: some PXAs have fewer on-chip GPIOs (like PXA255, with 85).
  * Those cases currently cause holes in the GPIO number space.
  */
-#define NR_BUILTIN_GPIO 128
+#define NR_BUILTIN_GPIO 192
 
 static inline int gpio_get_value(unsigned gpio)
 {

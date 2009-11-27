@@ -183,6 +183,10 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 
 	ehci->next_statechange = jiffies + msecs_to_jiffies(10);
 	spin_unlock_irq (&ehci->lock);
+
+#ifdef CONFIG_USB_OTG
+	hcd->driver->disconnect(hcd);
+#endif
 	return 0;
 }
 
@@ -847,6 +851,9 @@ static int ehci_hub_control (
 						+ msecs_to_jiffies (50);
 			}
 			ehci_writel(ehci, temp, status_reg);
+#ifdef CONFIG_USB_OTG
+			hcd->driver->connect(hcd, NULL);
+#endif
 			break;
 
 		/* For downstream facing ports (these):  one hub port is put

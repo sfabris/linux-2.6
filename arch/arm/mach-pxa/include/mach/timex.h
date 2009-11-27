@@ -21,6 +21,12 @@
 #else
 #define CLOCK_TICK_RATE 3250000
 #endif
+#elif defined(CONFIG_PXA3xx)
+#ifdef CONFIG_PXA_32KTIMER
+#define CLOCK_TICK_RATE 32768
+#else
+#define CLOCK_TICK_RATE 3250000
+#endif
 #else
 #define CLOCK_TICK_RATE 3250000
 #endif

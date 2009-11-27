@@ -124,7 +124,7 @@ static int cistpl_funce_func(struct sdio_func *func,
 	min_size = (vsn == SDIO_SDIO_REV_1_00) ? 28 : 42;
 
 	if (size < min_size || buf[0] != 1)
-		return -EINVAL;
+		printk(KERN_ALERT "size=%d min_size=%d\n", size, min_size);
 
 	/* TPLFE_MAX_BLK_SIZE */
 	func->max_blksize = buf[12] | (buf[13] << 8);

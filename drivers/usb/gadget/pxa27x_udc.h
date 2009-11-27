@@ -1,9 +1,10 @@
 /*
  * linux/drivers/usb/gadget/pxa27x_udc.h
- * Intel PXA27x on-chip full speed USB device controller
+ * Intel PXA3xx on-chip full speed USB device controller
  *
- * Inspired by original driver by Frank Becker, David Brownell, and others.
- * Copyright (C) 2008 Robert Jarzmik
+ * Copyright (C) 2003 Robert Schwebel <r.schwebel@pengutronix.de>, Pengutronix
+ * Copyright (C) 2003 David Brownell
+ * Copyright (C) 2004 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,476 +13,691 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307	 USA
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+ *(C) Copyright 2006 Marvell International Ltd.
+ * All Rights Reserved
  */
 
-#ifndef __LINUX_USB_GADGET_PXA27X_H
-#define __LINUX_USB_GADGET_PXA27X_H
+/*
+ * The CONFIG_USB_COMPOSITE macro enables the ability to support several
+ * gadget drivers to be bould with this driver at the same time and work
+ * together. This implements a device that has multiple interfaces con-
+ * trolled independently of each other, which is referred to as a "compo-
+ * site" device in the USB 2.0 spec.
+ * As the original design of gadget driver doesn't support several ones
+ * to work together, here list some limitations in the current version
+ * implemented here:
+ * 1. Only support gadget's default configuration
+ *    the device configuration is not static, will be the gadget config
+ *    value first inserted. Other configuration other than the default
+ *    in one gadget driver won't be viewed by USB host.
+ * 2. Gadget won't keep gadget driver's private data for each one any
+ *    more
+ *    gadget driver should maintain the driver's private data themselves,
+ *    but not in the gadget any more. e.g. "driver_data" in struct usb_ep
+ *    for ep0, and driver_data in "dev" for struct usb_gadget.
+ * 3. Consider every gadget driver implements only one function
+ *    For gadget driver that already has multiple interface and each
+ *    implements a different function, we don't know that it's not one
+ *    function and will consider it as one function with multiple
+ *    interfaces. And software will add the interface association
+ *    descriptor to USB host, which is unnecessary.
+ * 4. Potentail conflict exists in class/vendor specific requests
+ *    through the default pipe
+ *    For class/vendor specific requests that also use the default
+ *    pipe, it is hard to determine which gadget driver shoule the
+ *    requset to be passed to. The current implementation will give the
+ *    request to every gadget driver until it doesn't return EOPNOTSUPP.
+ *    This will cause a little delay to the request reponse. And we have
+ *    the premiss that no class/vendor specific requests are the same
+ *    in two gadget drivers.
+ * 5. String descriptors not well supported yet
+ *    String descriptors are not well supported when multiple gadget
+ *    drivers are inserted. It would pass the request to the "active"
+ *    (gadget driver module last registered or with the interface that
+ *    last SET_INTERFACE command issued.
+ * 6. rmmod issue
+ *    please remove all the modules simultaneously when change combination
+ *    of the function.
+ */
+
+#ifndef __LINUX_USB_GADGET_PXA3XX_H
+#define __LINUX_USB_GADGET_PXA3XX_H
 
 #include <linux/types.h>
-#include <linux/spinlock.h>
-#include <linux/io.h>
 
-/*
- * Register definitions
- */
-/* Offsets */
-#define UDCCR		0x0000		/* UDC Control Register */
-#define UDCICR0		0x0004		/* UDC Interrupt Control Register0 */
-#define UDCICR1		0x0008		/* UDC Interrupt Control Register1 */
-#define UDCISR0		0x000C		/* UDC Interrupt Status Register 0 */
-#define UDCISR1		0x0010		/* UDC Interrupt Status Register 1 */
-#define UDCFNR		0x0014		/* UDC Frame Number Register */
-#define UDCOTGICR	0x0018		/* UDC On-The-Go interrupt control */
-#define UP2OCR		0x0020		/* USB Port 2 Output Control register */
-#define UP3OCR		0x0024		/* USB Port 3 Output Control register */
-#define UDCCSRn(x)	(0x0100 + ((x)<<2)) /* UDC Control/Status register */
-#define UDCBCRn(x)	(0x0200 + ((x)<<2)) /* UDC Byte Count Register */
-#define UDCDRn(x)	(0x0300 + ((x)<<2)) /* UDC Data Register  */
-#define UDCCRn(x)	(0x0400 + ((x)<<2)) /* UDC Control Register */
+#ifdef CONFIG_USB_PXA3XX_U2D
+/* USB 2.0 device controller */
+#define U2DCR           __REG_3(0x54100000)	/* U2D Control Register */
+#define U2DCR_NDC              (1 << 31)        /* NAK During Config */
+#define U2DCR_HSTC_MASK	(0x7 << 28)		/* High Speed Timeout Calibration */
+#define U2DCR_HSTC_S	(28)			/* shift */
+#define U2DCR_SPEOREN          (1 << 27)        /* Short Packet EOR INTR generation Enable */
+#define U2DCR_FSTC_MASK	(0x7 << 24)		/* Full Speed Timeout Calibration */
+#define U2DCR_FSTC_S	(24)			/* shift */
+#define U2DCR_UCLKOVR	(1 << 22)		/* UTM Clock Override */
+#define U2DCR_ABP		(1 << 21)	/* Application Bus Power */
+#define U2DCR_ADD		(1 << 20)	/* Application Device Disconnect */
+#define U2DCR_CC		(1 << 19)	/* Configuration Change */
+#define U2DCR_HS		(1 << 18)	/* High Speed USB Detection */
+#define U2DCR_SMAC		(1 << 17)	/* Switch Endpoint Memofy to Actuve Configuration */
+#define U2DCR_DWRE		(1 << 16)	/* Device Remote Wake-up Feature */
+#define U2DCR_ACN		(0xf << 12)	/* Active U2D Configuration Number */
+#define U2DCR_ACN_S		12		/* shift */
+#define U2DCR_AIN		(0xf << 8)	/* Active U2D Interface Number */
+#define U2DCR_AIN_S		8		/* shift */
+#define U2DCR_AAISN		(0xf << 4)	/* Active U2D Alternate Interface Setting Number */
+#define U2DCR_AAISN_S	4			/* shift */
+#define U2DCR_EMCE		(1 << 3)	/* Endpoint Memory Configuration Error */
+#define U2DCR_UDR		(1 << 2)	/* U2D Resume */
+#define U2DCR_UDA		(1 << 1)	/* U2D Active */
+#define U2DCR_UDE		(1 << 0)	/* U2D Enable */
+#define U2DCR_MASK_BITS (U2DCR_CC | U2DCR_SMAC | U2DCR_EMCE | U2DCR_UDR)
 
-#define UDCCR_OEN	(1 << 31)	/* On-the-Go Enable */
-#define UDCCR_AALTHNP	(1 << 30)	/* A-device Alternate Host Negotiation
-					   Protocol Port Support */
-#define UDCCR_AHNP	(1 << 29)	/* A-device Host Negotiation Protocol
-					   Support */
-#define UDCCR_BHNP	(1 << 28)	/* B-device Host Negotiation Protocol
-					   Enable */
-#define UDCCR_DWRE	(1 << 16)	/* Device Remote Wake-up Enable */
-#define UDCCR_ACN	(0x03 << 11)	/* Active UDC configuration Number */
-#define UDCCR_ACN_S	11
-#define UDCCR_AIN	(0x07 << 8)	/* Active UDC interface Number */
-#define UDCCR_AIN_S	8
-#define UDCCR_AAISN	(0x07 << 5)	/* Active UDC Alternate Interface
-					   Setting Number */
-#define UDCCR_AAISN_S	5
-#define UDCCR_SMAC	(1 << 4)	/* Switch Endpoint Memory to Active
-					   Configuration */
-#define UDCCR_EMCE	(1 << 3)	/* Endpoint Memory Configuration
-					   Error */
-#define UDCCR_UDR	(1 << 2)	/* UDC Resume */
-#define UDCCR_UDA	(1 << 1)	/* UDC Active */
-#define UDCCR_UDE	(1 << 0)	/* UDC Enable */
+#define U2DICR          __REG_3(0x54100004)	/* U2D Interrupt Control Register */
+#define U2DISR          __REG_3(0x5410000C)	/* U2D Interrupt Status Register */
+#define U2DINT_CC		(1 << 31)	/* Interrupt - Configuration Change */
+#define U2DINT_SOF		(1 << 30)	/* Interrupt - SOF */
+#define U2DINT_USOF		(1 << 29)	/* Interrupt - micro SOF */
+#define U2DINT_RU		(1 << 28)	/* Interrupt - Resume */
+#define U2DINT_SU		(1 << 27)	/* Interrupt - Suspend */
+#define U2DINT_RS		(1 << 26)	/* Interrupt - Reset */
+#define U2DINT_DPE		(1 << 25)	/* Interrupt - Data Packet Error */
+#define U2DINT_FIFOERR		(0x4)		/* Interrupt - endpoint FIFO error */
+#define U2DINT_PACKETCMP	(0x2)		/* Interrupt - endpoint packet complete */
+#define U2DINT_SPACKETCMP	(0x1)		/* Interrupt - endpoint short packet complete */
 
-#define UDCICR_INT(n, intr) (((intr) & 0x03) << (((n) & 0x0F) * 2))
-#define UDCICR1_IECC	(1 << 31)	/* IntEn - Configuration Change */
-#define UDCICR1_IESOF	(1 << 30)	/* IntEn - Start of Frame */
-#define UDCICR1_IERU	(1 << 29)	/* IntEn - Resume */
-#define UDCICR1_IESU	(1 << 28)	/* IntEn - Suspend */
-#define UDCICR1_IERS	(1 << 27)	/* IntEn - Reset */
-#define UDCICR_FIFOERR	(1 << 1)	/* FIFO Error interrupt for EP */
-#define UDCICR_PKTCOMPL	(1 << 0)	/* Packet Complete interrupt for EP */
-#define UDCICR_INT_MASK	(UDCICR_FIFOERR | UDCICR_PKTCOMPL)
+#define U2DFNR          __REG_3(0x54100014)	/* U2D Frame Number Register */
 
-#define UDCISR_INT(n, intr) (((intr) & 0x03) << (((n) & 0x0F) * 2))
-#define UDCISR1_IRCC	(1 << 31)	/* IntReq - Configuration Change */
-#define UDCISR1_IRSOF	(1 << 30)	/* IntReq - Start of Frame */
-#define UDCISR1_IRRU	(1 << 29)	/* IntReq - Resume */
-#define UDCISR1_IRSU	(1 << 28)	/* IntReq - Suspend */
-#define UDCISR1_IRRS	(1 << 27)	/* IntReq - Reset */
-#define UDCISR_INT_MASK	(UDCICR_FIFOERR | UDCICR_PKTCOMPL)
+#define U2DINT(n, intr)                 (((intr) & 0x07) << (((n) & 0x07) * 3))
+#define U2DICR2                __REG_3(0x54100008)      /* U2D Interrupt Control Register 2 */
+#define U2DISR2                __REG_3(0x54100010)      /* U2D Interrupt Status Register 2 */
 
-#define UDCOTGICR_IESF	(1 << 24)	/* OTG SET_FEATURE command recvd */
-#define UDCOTGICR_IEXR	(1 << 17)	/* Extra Transciever Interrupt
-					   Rising Edge Interrupt Enable */
-#define UDCOTGICR_IEXF	(1 << 16)	/* Extra Transciever Interrupt
-					   Falling Edge Interrupt Enable */
-#define UDCOTGICR_IEVV40R (1 << 9)	/* OTG Vbus Valid 4.0V Rising Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IEVV40F (1 << 8)	/* OTG Vbus Valid 4.0V Falling Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IEVV44R (1 << 7)	/* OTG Vbus Valid 4.4V Rising Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IEVV44F (1 << 6)	/* OTG Vbus Valid 4.4V Falling Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IESVR	(1 << 5)	/* OTG Session Valid Rising Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IESVF	(1 << 4)	/* OTG Session Valid Falling Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IESDR	(1 << 3)	/* OTG A-Device SRP Detect Rising
-					   Edge Interrupt Enable */
-#define UDCOTGICR_IESDF	(1 << 2)	/* OTG A-Device SRP Detect Falling
-					   Edge Interrupt Enable */
-#define UDCOTGICR_IEIDR	(1 << 1)	/* OTG ID Change Rising Edge
-					   Interrupt Enable */
-#define UDCOTGICR_IEIDF	(1 << 0)	/* OTG ID Change Falling Edge
-					   Interrupt Enable */
+#define U2DOTGCR               __REG_3(0x54100020)      /* U2D OTG Control Register */
+#define U2DOTGCR_OTGEN         (1 << 31)                /* On-The-Go Enable */
+#define U2DOTGCR_AALTHNP       (1 << 30)                /* A-device Alternate Host Negotiation Protocal Port Support */
+#define U2DOTGCR_AHNP          (1 << 29)                /* A-device Host Negotiation Protocal Support */
+#define U2DOTGCR_BHNP          (1 << 28)                /* B-device Host Negotiation Protocal Enable */
 
-/* Host Port 2 field bits */
-#define UP2OCR_CPVEN	(1 << 0)	/* Charge Pump Vbus Enable */
-#define UP2OCR_CPVPE	(1 << 1)	/* Charge Pump Vbus Pulse Enable */
-					/* Transceiver enablers */
-#define UP2OCR_DPPDE	(1 << 2)	/*   D+ Pull Down Enable */
-#define UP2OCR_DMPDE	(1 << 3)	/*   D- Pull Down Enable */
-#define UP2OCR_DPPUE	(1 << 4)	/*   D+ Pull Up Enable */
-#define UP2OCR_DMPUE	(1 << 5)	/*   D- Pull Up Enable */
-#define UP2OCR_DPPUBE	(1 << 6)	/*   D+ Pull Up Bypass Enable */
-#define UP2OCR_DMPUBE	(1 << 7)	/*   D- Pull Up Bypass Enable */
-#define UP2OCR_EXSP	(1 << 8)	/* External Transceiver Speed Control */
-#define UP2OCR_EXSUS	(1 << 9)	/* External Transceiver Speed Enable */
-#define UP2OCR_IDON	(1 << 10)	/* OTG ID Read Enable */
-#define UP2OCR_HXS	(1 << 16)	/* Transceiver Output Select */
-#define UP2OCR_HXOE	(1 << 17)	/* Transceiver Output Enable */
-#define UP2OCR_SEOS	(1 << 24)	/* Single-Ended Output Select */
+#ifdef CONFIG_CPU_PXA930
+#define U2DOTGCR_LPA		(1 << 15)	/* ULPI low power mode active */
+#define U2DOTGCR_IESI		(1 << 13)	/* OTG interrupt Enable */
+#define U2DOTGCR_ISSI		(1 << 12)	/* OTG interrupt status */
+#endif
 
-#define UDCCSR0_SA	(1 << 7)	/* Setup Active */
-#define UDCCSR0_RNE	(1 << 6)	/* Receive FIFO Not Empty */
-#define UDCCSR0_FST	(1 << 5)	/* Force Stall */
-#define UDCCSR0_SST	(1 << 4)	/* Sent Stall */
-#define UDCCSR0_DME	(1 << 3)	/* DMA Enable */
-#define UDCCSR0_FTF	(1 << 2)	/* Flush Transmit FIFO */
-#define UDCCSR0_IPR	(1 << 1)	/* IN Packet Ready */
-#define UDCCSR0_OPC	(1 << 0)	/* OUT Packet Complete */
+#define U2DOTGCR_CKAF          (1 << 5)                         /* Carkit Mode Alternate Function Select */
+#define U2DOTGCR_UTMID         (1 << 4)                         /* UTMI Interface Disable */
+#define U2DOTGCR_ULAF          (1 << 3)                         /* ULPI Mode Alternate Function Select */
+#define U2DOTGCR_SMAF          (1 << 2)                         /* Serial Mode Alternate Function Select */
+#define U2DOTGCR_RTSM          (1 << 1)                         /* Return to Synchronous Mode (ULPI Mode) */
+#define U2DOTGCR_ULE           (1 << 0)                         /* ULPI Wrapper Enable */
 
-#define UDCCSR_DPE	(1 << 9)	/* Data Packet Error */
-#define UDCCSR_FEF	(1 << 8)	/* Flush Endpoint FIFO */
-#define UDCCSR_SP	(1 << 7)	/* Short Packet Control/Status */
-#define UDCCSR_BNE	(1 << 6)	/* Buffer Not Empty (IN endpoints) */
-#define UDCCSR_BNF	(1 << 6)	/* Buffer Not Full (OUT endpoints) */
-#define UDCCSR_FST	(1 << 5)	/* Force STALL */
-#define UDCCSR_SST	(1 << 4)	/* Sent STALL */
-#define UDCCSR_DME	(1 << 3)	/* DMA Enable */
-#define UDCCSR_TRN	(1 << 2)	/* Tx/Rx NAK */
-#define UDCCSR_PC	(1 << 1)	/* Packet Complete */
-#define UDCCSR_FS	(1 << 0)	/* FIFO needs service */
+#define U2DOTGICR              __REG_3(0x54100024)              /* U2D OTG Interrupt Control Register */
+#define U2DOTGISR              __REG_3(0x54100028)              /* U2D OTG Interrupt Status Register */
 
-#define UDCCONR_CN	(0x03 << 25)	/* Configuration Number */
-#define UDCCONR_CN_S	25
-#define UDCCONR_IN	(0x07 << 22)	/* Interface Number */
-#define UDCCONR_IN_S	22
-#define UDCCONR_AISN	(0x07 << 19)	/* Alternate Interface Number */
-#define UDCCONR_AISN_S	19
-#define UDCCONR_EN	(0x0f << 15)	/* Endpoint Number */
-#define UDCCONR_EN_S	15
-#define UDCCONR_ET	(0x03 << 13)	/* Endpoint Type: */
-#define UDCCONR_ET_S	13
-#define UDCCONR_ET_INT	(0x03 << 13)	/*   Interrupt */
-#define UDCCONR_ET_BULK	(0x02 << 13)	/*   Bulk */
-#define UDCCONR_ET_ISO	(0x01 << 13)	/*   Isochronous */
-#define UDCCONR_ET_NU	(0x00 << 13)	/*   Not used */
-#define UDCCONR_ED	(1 << 12)	/* Endpoint Direction */
-#define UDCCONR_MPS	(0x3ff << 2)	/* Maximum Packet Size */
-#define UDCCONR_MPS_S	2
-#define UDCCONR_DE	(1 << 1)	/* Double Buffering Enable */
-#define UDCCONR_EE	(1 << 0)	/* Endpoint Enable */
+#define U2DOTGINT_SF           (1 << 17)                        /* OTG Set Feature Command Received */
+#define U2DOTGINT_SI           (1 << 16)                        /* OTG Interrupt */
+#define U2DOTGINT_RLS1         (1 << 14)                        /* RXCMD Linestate[1] Change Interrupt Rise */
+#define U2DOTGINT_RLS0         (1 << 13)                        /* RXCMD Linestate[0] Change Interrupt Rise */
+#define U2DOTGINT_RID          (1 << 12)                        /* RXCMD OTG ID Change Interrupt Rise */
+#define U2DOTGINT_RSE          (1 << 11)                        /* RXCMD OTG Session End Interrupt Rise */
+#define U2DOTGINT_RSV          (1 << 10)                        /* RXCMD OTG Session Valid Interrupt Rise */
+#define U2DOTGINT_RVV          (1 << 9)                         /* RXCMD OTG Vbus Valid Interrupt Rise */
+#define U2DOTGINT_RCK          (1 << 8)                         /* RXCMD Carkit Interrupt Rise */
+#define U2DOTGINT_FLS1         (1 << 6)                         /* RXCMD Linestate[1] Change Interrupt Fall */
+#define U2DOTGINT_FLS0         (1 << 5)                         /* RXCMD Linestate[0] Change Interrupt Fall */
+#define U2DOTGINT_FID          (1 << 4)                         /* RXCMD OTG ID Change Interrupt Fall */
+#define U2DOTGINT_FSE          (1 << 3)                         /* RXCMD OTG Session End Interrupt Fall */
+#define U2DOTGINT_FSV          (1 << 2)                         /* RXCMD OTG Session Valid Interrupt Fall */
+#define U2DOTGINT_FVV          (1 << 1)                         /* RXCMD OTG Vbus Valid Interrupt Fall */
+#define U2DOTGINT_FCK          (1 << 0)                         /* RXCMD Carkit Interrupt Fall */
 
-#define UDCCR_MASK_BITS (UDCCR_OEN | UDCCR_SMAC | UDCCR_UDR | UDCCR_UDE)
-#define UDCCSR_WR_MASK	(UDCCSR_DME | UDCCSR_FST)
-#define UDC_FNR_MASK	(0x7ff)
-#define UDC_BCR_MASK	(0x3ff)
+#define U2DOTGUSR              __REG_3(0x5410002C)              /* U2D OTG ULPI Status Register */
+#define U2DOTGUSR_LPA          (1 << 31)                        /* ULPI Low Power Mode Active */
+#define U2DOTGUSR_S6A          (1 << 30)                        /* ULPI Serial Mode (6-pin) Active */
+#define U2DOTGUSR_S3A          (1 << 29)                        /* ULPI Serial Mode (3-pin) Active */
+#define U2DOTGUSR_CKA          (1 << 28)                        /* ULPI Car Kit Mode Active */
+#define U2DOTGUSR_LS1          (1 << 6)                         /* RXCMD Linestate 1 Status */
+#define U2DOTGUSR_LS0          (1 << 5)                         /* RXCMD Linestate 0 Status */
+#define U2DOTGUSR_ID           (1 << 4)                         /* OTG IDGnd Status */
+#define U2DOTGUSR_SE           (1 << 3)                         /* OTG Session End Status */
+#define U2DOTGUSR_SV           (1 << 2)                         /* OTG Session Valid Status */
+#define U2DOTGUSR_VV           (1 << 1)                         /* OTG Vbus Valid Status */
+#define U2DOTGUSR_CK           (1 << 0)                         /* Carkit Interrupt Status */
 
-/*
- * UDCCR = UDC Endpoint Configuration Registers
- * UDCCSR = UDC Control/Status Register for this EP
- * UDCBCR = UDC Byte Count Remaining (contents of OUT fifo)
- * UDCDR = UDC Endpoint Data Register (the fifo)
- */
-#define ofs_UDCCR(ep)	(UDCCRn(ep->idx))
-#define ofs_UDCCSR(ep)	(UDCCSRn(ep->idx))
-#define ofs_UDCBCR(ep)	(UDCBCRn(ep->idx))
-#define ofs_UDCDR(ep)	(UDCDRn(ep->idx))
+#define U2DOTGUCR              __REG_3(0x54100030)              /* U2D OTG ULPI Control Register */
+#define U2DOTGUCR_RUN          (1 << 25)                        /* RUN */
+#define U2DOTGUCR_RNW          (1 << 24)                        /* Read or Write operation */
+#define U2DOTGUCR_ADDR         (0x3f << 16)                     /* Address of the ULPI PHY register to be accessed */
+#define U2DOTGUCR_ADDR_S       16                               /* shift */
+#define U2DOTGUCR_WDATA                (0xff << 8)              /* The data for a WRITE command */
+#define U2DOTGUCR_WDATA_S      8                                /* shift */
+#define U2DOTGUCR_RDATA                (0xff << 0)              /* The data for a READ command */
+#define U2DOTGUCR_RDATA_S      0                                /* shift */
 
-/* Register access macros */
-#define udc_ep_readl(ep, reg)	\
-	__raw_readl((ep)->dev->regs + ofs_##reg(ep))
-#define udc_ep_writel(ep, reg, value)	\
-	__raw_writel((value), ep->dev->regs + ofs_##reg(ep))
-#define udc_ep_readb(ep, reg)	\
-	__raw_readb((ep)->dev->regs + ofs_##reg(ep))
-#define udc_ep_writeb(ep, reg, value)	\
-	__raw_writeb((value), ep->dev->regs + ofs_##reg(ep))
-#define udc_readl(dev, reg)	\
-	__raw_readl((dev)->regs + (reg))
-#define udc_writel(udc, reg, value)	\
-	__raw_writel((value), (udc)->regs + (reg))
+#define U2DP3CR                __REG_3(0x54100034)              /* U2D Port 3 Control Register */
+#define U2DP3CR_P2SS           (0x3 << 8)                       /* Host Port 2 Serial Mode Select */
+#define U2DP3CR_P2SS_S         8                                /* shift */
+#define U2DP3CR_P3SS           (0x7 << 4)                       /* Host Port 3 Serial Mode Select */
+#define U2DP3CR_P3SS_S         4                                /* shift */
+#define U2DP3CR_VPVMBEN                (1 << 1)                 /* Host Port 3 Vp/Vm Block Enable */
+#define U2DP3CR_CFG            (1 << 0)                         /* Host Port 3 Configuration */
 
-#define UDCCSR_MASK		(UDCCSR_FST | UDCCSR_DME)
-#define UDCCISR0_EP_MASK	~0
-#define UDCCISR1_EP_MASK	0xffff
-#define UDCCSR0_CTRL_REQ_MASK	(UDCCSR0_OPC | UDCCSR0_SA | UDCCSR0_RNE)
+#define U2DCSR0         __REG_3(0x54100100)			/* U2D Control/Status Register - Endpoint 0 */
+#define U2DCSR0_IPA		(1 << 8)			/* IN Packet Adjusted */
+#define U2DCSR0_SA		(1 << 7)			/* SETUP Active */
+#define U2DCSR0_RNE		(1 << 6)			/* Receive FIFO Not Empty */
+#define U2DCSR0_FST		(1 << 5)			/* Force Stall */
+#define U2DCSR0_SST		(1 << 4)			/* Send Stall */
+#define U2DCSR0_DME		(1 << 3)			/* DMA Enable */
+#define U2DCSR0_FTF		(1 << 2)			/* Flush Transmit FIFO */
+#define U2DCSR0_IPR		(1 << 1)			/* IN Packet Ready */
+#define U2DCSR0_OPC		(1 << 0)			/* OUT Packet Complete */
 
-#define EPIDX(ep)	(ep->idx)
-#define EPADDR(ep)	(ep->addr)
-#define EPXFERTYPE(ep)	(ep->type)
-#define EPNAME(ep)	(ep->name)
-#define is_ep0(ep)	(!ep->idx)
-#define EPXFERTYPE_is_ISO(ep) (EPXFERTYPE(ep) == USB_ENDPOINT_XFER_ISOC)
+#define U2DCSR(x)       __REG_3(0x54100100 + ((x) << 2))	/* U2D Control/Status Register - Endpoint x */
+#define U2DCSR_BF		(1 << 10)			/* Buffer Full, for OUT eps */
+#define U2DCSR_BE		(1 << 10)			/* Buffer Empty, for IN eps */
+#define U2DCSR_DPE		(1 << 9)			/* Data Packet Error, for ISO eps only */
+#define U2DCSR_FEF		(1 << 8)			/* Flush Endpoint FIFO */
+#define U2DCSR_SP		(1 << 7)			/* Short Packet Control/Status, for OUT eps only, readonly */
+#define U2DCSR_BNE		(1 << 6)			/* Buffer Not Empty, for OUT eps */
+#define U2DCSR_BNF		(1 << 6)			/* Buffer Not Full, for IN eps */
+#define U2DCSR_FST		(1 << 5)			/* Force STALL, write 1 set */
+#define U2DCSR_SST		(1 << 4)			/* Sent STALL, write 1 clear */
+#define U2DCSR_DME		(1 << 3)			/* DMA Enable */
+#define U2DCSR_TRN		(1 << 2)			/* Tx/Rx NAK, write 1 clear */
+#define U2DCSR_PC		(1 << 1)			/* Packet Complete, write 1 clear */
+#define U2DCSR_FS		(1 << 0)			/* FIFO needs Service */
 
-/*
- * Endpoint definitions
- *
- * Once enabled, pxa endpoint configuration is freezed, and cannot change
- * unless a reset happens or the udc is disabled.
- * Therefore, we must define all pxa potential endpoint definitions needed for
- * all gadget and set them up before the udc is enabled.
- *
- * As the architecture chosen is fully static, meaning the pxa endpoint
- * configurations are set up once and for all, we must provide a way to match
- * one usb endpoint (usb_ep) to several pxa endpoints. The reason is that gadget
- * layer autoconf doesn't choose the usb_ep endpoint on (config, interface, alt)
- * criteria, while the pxa architecture requires that.
- *
- * The solution is to define several pxa endpoints matching one usb_ep. Ex:
- *   - "ep1-in" matches pxa endpoint EPA (which is an IN ep at addr 1, when
- *     the udc talks on (config=3, interface=0, alt=0)
- *   - "ep1-in" matches pxa endpoint EPB (which is an IN ep at addr 1, when
- *     the udc talks on (config=3, interface=0, alt=1)
- *   - "ep1-in" matches pxa endpoint EPC (which is an IN ep at addr 1, when
- *     the udc talks on (config=2, interface=0, alt=0)
- *
- * We'll define the pxa endpoint by its index (EPA => idx=1, EPB => idx=2, ...)
- */
+#define U2DBCR0         __REG_3(0x54100200)			/* U2D Byte Count Register - Endpoint 0 */
+#define U2DBCR(x)       __REG_3(0x54100200 + ((x) << 2))	/* U2D Byte Count Register - Endpoint x */
 
-/*
- * Endpoint definition helpers
- */
-#define USB_EP_DEF(addr, bname, dir, type, maxpkt) \
-{ .usb_ep = { .name = bname, .ops = &pxa_ep_ops, .maxpacket = maxpkt, }, \
-  .desc = {	.bEndpointAddress = addr | (dir ? USB_DIR_IN : 0), \
-		.bmAttributes = type, \
-		.wMaxPacketSize = maxpkt, }, \
-  .dev = &memory \
-}
-#define USB_EP_BULK(addr, bname, dir) \
-  USB_EP_DEF(addr, bname, dir, USB_ENDPOINT_XFER_BULK, BULK_FIFO_SIZE)
-#define USB_EP_ISO(addr, bname, dir) \
-  USB_EP_DEF(addr, bname, dir, USB_ENDPOINT_XFER_ISOC, ISO_FIFO_SIZE)
-#define USB_EP_INT(addr, bname, dir) \
-  USB_EP_DEF(addr, bname, dir, USB_ENDPOINT_XFER_INT, INT_FIFO_SIZE)
-#define USB_EP_IN_BULK(n)	USB_EP_BULK(n, "ep" #n "in-bulk", 1)
-#define USB_EP_OUT_BULK(n)	USB_EP_BULK(n, "ep" #n "out-bulk", 0)
-#define USB_EP_IN_ISO(n)	USB_EP_ISO(n,  "ep" #n "in-iso", 1)
-#define USB_EP_OUT_ISO(n)	USB_EP_ISO(n,  "ep" #n "out-iso", 0)
-#define USB_EP_IN_INT(n)	USB_EP_INT(n,  "ep" #n "in-int", 1)
-#define USB_EP_CTRL		USB_EP_DEF(0,  "ep0", 0, 0, EP0_FIFO_SIZE)
+#define U2DDR0		__REG_3(0x54100300)			/* U2D Data Register - Endpoint 0 */
 
-#define PXA_EP_DEF(_idx, _addr, dir, _type, maxpkt, _config, iface, altset) \
-{ \
-	.dev = &memory, \
-	.name = "ep" #_idx, \
-	.idx = _idx, .enabled = 0, \
-	.dir_in = dir, .addr = _addr, \
-	.config = _config, .interface = iface, .alternate = altset, \
-	.type = _type, .fifo_size = maxpkt, \
-}
-#define PXA_EP_BULK(_idx, addr, dir, config, iface, alt) \
-  PXA_EP_DEF(_idx, addr, dir, USB_ENDPOINT_XFER_BULK, BULK_FIFO_SIZE, \
-		config, iface, alt)
-#define PXA_EP_ISO(_idx, addr, dir, config, iface, alt) \
-  PXA_EP_DEF(_idx, addr, dir, USB_ENDPOINT_XFER_ISOC, ISO_FIFO_SIZE, \
-		config, iface, alt)
-#define PXA_EP_INT(_idx, addr, dir, config, iface, alt) \
-  PXA_EP_DEF(_idx, addr, dir, USB_ENDPOINT_XFER_INT, INT_FIFO_SIZE, \
-		config, iface, alt)
-#define PXA_EP_IN_BULK(i, adr, c, f, a)		PXA_EP_BULK(i, adr, 1, c, f, a)
-#define PXA_EP_OUT_BULK(i, adr, c, f, a)	PXA_EP_BULK(i, adr, 0, c, f, a)
-#define PXA_EP_IN_ISO(i, adr, c, f, a)		PXA_EP_ISO(i, adr, 1, c, f, a)
-#define PXA_EP_OUT_ISO(i, adr, c, f, a)		PXA_EP_ISO(i, adr, 0, c, f, a)
-#define PXA_EP_IN_INT(i, adr, c, f, a)		PXA_EP_INT(i, adr, 1, c, f, a)
-#define PXA_EP_CTRL	PXA_EP_DEF(0, 0, 0, 0, EP0_FIFO_SIZE, 0, 0, 0)
+#define U2DEPCR(x)	__REG_3(0x54100400 + ((x) << 2))	/* U2D Configuration Register - Endpoint x */
+#define U2DEPCR_EE		(1 << 0)			/* Endpoint Enable */
+#define U2DEPCR_BS_MASK	(0x3FE)					/* Buffer Size, BS*8=FIFO size, max 8184B = 8KB */
+
+#define U2DSCA		__REG_3(0x54100500)			/* U2D Setup Command Address */
+#define U2DSCA_VALUE	0x0120
+
+#define U2DEN0		__REG_3(0x54100504)			/* U2D Endpoint Information Register - Endpoint 0 */
+#define U2DEN(x)	__REG_3(0x54100504 + ((x) << 2))	/* U2D Endpoint Information Register - Endpoint x */
+
+/* U2DMA registers */
+#define U2DMACSR0		__REG_3(0x54101000)		/* U2DMA Control/Status Register - Channel 0 */
+#define U2DMACSR(x)	__REG_3(0x54101000 + ((x) << 2))	/* U2DMA Control/Status Register - Channel x */
+#define U2DMACSR_RUN		(1 << 31)			/* Run Bit (read / write) */
+#define U2DMACSR_STOPIRQEN	(1 << 29)			/* Stop Interrupt Enable (read / write) */
+#define U2DMACSR_EORIRQEN	(1 << 28)			/* End of Receive Interrupt Enable (R/W) */
+#define U2DMACSR_EORJMPEN	(1 << 27)			/* Jump to next descriptor on EOR */
+#define U2DMACSR_EORSTOPEN	(1 << 26)			/* STOP on an EOR */
+#define U2DMACSR_RASIRQEN	(1 << 23)			/* Request After Cnannel Stopped Interrupt Enable */
+#define U2DMACSR_MASKRUN	(1 << 22)			/* Mask Run */
+#define U2DMACSR_SCEMC		(3 << 18)			/* System Bus Split Completion Error Message Class */
+#define U2DMACSR_SCEMI		(0x1f << 13)			/* System Bus Split Completion Error Message Index */
+#define U2DMACSR_BUSERRTYPE	(7 << 10)			/* PX Bus Error Type */
+#define U2DMACSR_EORINTR	(1 << 9)			/* End Of Receive */
+#define U2DMACSR_REQPEND	(1 << 8)			/* Request Pending */
+#define U2DMACSR_RASINTR	(1 << 4)			/* Request After Channel Stopped (read / write 1 clear) */
+#define U2DMACSR_STOPINTR	(1 << 3)			/* Stop Interrupt (read only) */
+#define U2DMACSR_ENDINTR	(1 << 2)			/* End Interrupt (read / write 1 clear) */
+#define U2DMACSR_STARTINTR	(1 << 1)			/* Start Interrupt (read / write 1 clear) */
+#define U2DMACSR_BUSERRINTR	(1 << 0)			/* Bus Error Interrupt (read / write 1 clear) */
+
+#define U2DMACR		__REG_3(0x54101080)			/* U2DMA Control Register */
+#define U2DMAINT	__REG_3(0x541010F0)			/* U2DMA Interrupt Register */
+
+#define U2DMABR0	__REG_3(0x54101100)			/* U2DMA Branch Register - Channel 0 */
+#define U2DMABR(x)      __REG_3(0x54101100 + (x) << 2)		/* U2DMA Branch Register - Channel x */
+
+#define U2DMADADR0      __REG_3(0x54101200)			/* U2DMA Descriptor Address Register - Channel 0 */
+#define U2DMADADR(x)    __REG_3(0x54101200 + (x) * 0x10)	/* U2DMA Descriptor Address Register - Channel x */
+
+#define U2DMADADR_STOP        (1U << 0)
+
+#define U2DMASADR0      __REG_3(0x54101204)			/* U2DMA Source Address Register - Channel 0 */
+#define U2DMASADR(x)    __REG_3(0x54101204 + (x) * 0x10)	/* U2DMA Source Address Register - Channel x */
+#define U2DMATADR0      __REG_3(0x54101208)			/* U2DMA Target Address Register - Channel 0 */
+#define U2DMATADR(x)    __REG_3(0x54101208 + (x) * 0x10)	/* U2DMA Target Address Register - Channel x */
+
+#define U2DMACMDR0      __REG_3(0x5410120C)			/* U2DMA Command Address Register - Channel 0 */
+#define U2DMACMDR(x)    __REG_3(0x5410120C + (x) * 0x10)	/* U2DMA Command Address Register - Channel x */
+
+#define U2DMACMDR_XFRDIS		(1 << 31)		/* Transfer Direction */
+#define U2DMACMDR_STARTIRQEN	(1 << 22)			/* Start Interrupt Enable */
+#define U2DMACMDR_ENDIRQEN		(1 << 21)		/* End Interrupt Enable */
+#define U2DMACMDR_PACKCOMP		(1 << 13)		/* Packet Complete */
+#define U2DMACMDR_LEN			(0x07ff)		/* length mask (max = 2K - 1) */
+
+#define CWSBR_BASE	0x42404000
+#define CWSBR		0x8
+
+#define cwsbr_readl()	__raw_readl(dev->cwsbr_base + CWSBR)
+#define cwsbr_writel(v)	__raw_writel((v), dev->cwsbr_base + CWSBR)
+
+#define set_cwsbr()	cwsbr_writel((cwsbr_readl()) | 0x10000)
+#define clr_cwsbr()	cwsbr_writel((cwsbr_readl()) & ~(0x10000))
+
+enum u2d_bug_type {
+	U2D_BUG_NONE = 0,
+	U2D_BUG_INMASS = 0x1,
+	U2D_BUG_SETINTF = 0x2,
+	U2D_BUG_STALL = 0x4,
+	DDR_BUG_DMA = 0x8,
+	U2D_BUG_UTMID = 0x10,
+	U2D_FIX_ULPI_STP = 0x20,
+};
+
+enum u2d_phy_mode {
+	SYNCH = 0,
+	CARKIT = 0x1,
+	SER_3PIN = 0x2,
+	SER_6PIN = 0x4,
+	LOWPOWER = 0x8,
+	/* rtsm mode */
+	PRE_SYNCH = 0x10,
+};
+
+enum hs_cmds_permf {
+	HS_CMDS_0,
+	HS_CMDS_1,
+	HS_CMDS_2,
+	HS_CMDS_3
+};
+
+#define ISO_HS_CMDS		HS_CMDS_0
+#define INT_HS_CMDS		HS_CMDS_0
+
+struct dma_txfr_t {
+	unsigned int len;	/* Buffer Size */
+	int is_zero;		/* Add zero package after transfer. Only valid for IN transfer. */
+	int end_irq_en;		/* Enalbe/Disable End Interrupt at last descriptor */
+};
+#endif
 
 struct pxa27x_udc;
 
-struct stats {
-	unsigned long in_ops;
-	unsigned long out_ops;
-	unsigned long in_bytes;
-	unsigned long out_bytes;
-	unsigned long irqs;
-};
+struct pxa27x_ep {
+	struct usb_ep				ep;
+	struct pxa27x_udc			*dev;
 
-/**
- * struct udc_usb_ep - container of each usb_ep structure
- * @usb_ep: usb endpoint
- * @desc: usb descriptor, especially type and address
- * @dev: udc managing this endpoint
- * @pxa_ep: matching pxa_ep (cache of find_pxa_ep() call)
- */
-struct udc_usb_ep {
-	struct usb_ep usb_ep;
-	struct usb_endpoint_descriptor desc;
-	struct pxa_udc *dev;
-	struct pxa_ep *pxa_ep;
-};
+	const struct usb_endpoint_descriptor	*desc;
+	struct list_head			queue;
+	unsigned long				pio_irqs;
+	unsigned long				dma_irqs;
 
-/**
- * struct pxa_ep - pxa endpoint
- * @dev: udc device
- * @queue: requests queue
- * @lock: lock to pxa_ep data (queues and stats)
- * @enabled: true when endpoint enabled (not stopped by gadget layer)
- * @idx: endpoint index (1 => epA, 2 => epB, ..., 24 => epX)
- * @name: endpoint name (for trace/debug purpose)
- * @dir_in: 1 if IN endpoint, 0 if OUT endpoint
- * @addr: usb endpoint number
- * @config: configuration in which this endpoint is active
- * @interface: interface in which this endpoint is active
- * @alternate: altsetting in which this endpoitn is active
- * @fifo_size: max packet size in the endpoint fifo
- * @type: endpoint type (bulk, iso, int, ...)
- * @udccsr_value: save register of UDCCSR0 for suspend/resume
- * @udccr_value: save register of UDCCR for suspend/resume
- * @stats: endpoint statistics
- *
- * The *PROBLEM* is that pxa's endpoint configuration scheme is both misdesigned
- * (cares about config/interface/altsetting, thus placing needless limits on
- * device capability) and full of implementation bugs forcing it to be set up
- * for use more or less like a pxa255.
- *
- * As we define the pxa_ep statically, we must guess all needed pxa_ep for all
- * gadget which may work with this udc driver.
- */
-struct pxa_ep {
-	struct pxa_udc		*dev;
+	int					dma;
+	unsigned				fifo_size;
+	unsigned				ep_num;
+	unsigned				ep_type;
 
-	struct list_head	queue;
-	spinlock_t		lock;		/* Protects this structure */
-						/* (queues, stats) */
-	unsigned		enabled:1;
+	unsigned				stopped : 1;
+	unsigned				dma_con : 1;
+	unsigned				dir_in : 1;
+	unsigned				assigned : 1;
 
-	unsigned		idx:5;
-	char			*name;
+#ifdef CONFIG_USB_PXA3XX_U2D
+	void *dma_desc_virt;
+	dma_addr_t dma_desc_phys;
+	unsigned dma_desc_size;
 
-	/*
-	 * Specific pxa endpoint data, needed for hardware initialization
+	/* HS only for ISO and interrupt endpoints */
+	unsigned hs_cmds;
+#endif
+	void					*dma_buf_virt;
+	dma_addr_t				dma_buf_phys;
+	unsigned				dma_buf_size;
+
+	unsigned				aisn;
+#ifdef CONFIG_USB_PXA27X_UDC
+	/* UDCCSR = UDC Control/Status Register for this EP
+	 * UBCR = UDC Byte Count Remaining (contents of OUT fifo)
+	 * UDCDR = UDC Endpoint Data Register (the fifo)
+	 * UDCCR = UDC Endpoint Configuration Registers
+	 * DRCM = DMA Request Channel Map
 	 */
-	unsigned		dir_in:1;
-	unsigned		addr:3;
-	unsigned		config:2;
-	unsigned		interface:3;
-	unsigned		alternate:3;
-	unsigned		fifo_size;
-	unsigned		type;
+	volatile u32				*reg_udccsr;
+	volatile u32				*reg_udcbcr;
+	volatile u32				*reg_udcdr;
+	volatile u32				*reg_udccr;
+	volatile u32				*reg_drcmr;
+#endif
 
 #ifdef CONFIG_PM
-	u32			udccsr_value;
-	u32			udccr_value;
+#if defined(CONFIG_USB_PXA27X_UDC)
+	unsigned				udccsr_value;
+	unsigned				udccr_value;
+#elif defined(CONFIG_USB_PXA3XX_U2D)
+	unsigned u2dcsr_value;
+	unsigned u2dcr_value;
+	unsigned u2denr_value;
 #endif
-	struct stats		stats;
 };
 
-/**
- * struct pxa27x_request - container of each usb_request structure
- * @req: usb request
- * @udc_usb_ep: usb endpoint the request was submitted on
- * @in_use: sanity check if request already queued on an pxa_ep
- * @queue: linked list of requests, linked on pxa_ep->queue
- */
-struct pxa27x_request {
-	struct usb_request			req;
-	struct udc_usb_ep			*udc_usb_ep;
-	unsigned				in_use:1;
-	struct list_head			queue;
-};
+#if defined(CONFIG_USB_PXA27X_UDC)
+#define EP0_FIFO_SIZE	((unsigned)16)
+#define BULK_FIFO_SIZE	((unsigned)64)
+#ifdef PATCH_TEMP
+#define ISO_FIFO_SIZE	((unsigned)512)
+#else
+#define ISO_FIFO_SIZE	((unsigned)256)
+#endif
+#define INT_FIFO_SIZE	((unsigned)16)
+#elif defined(CONFIG_USB_PXA3XX_U2D)
+/* 8KB EP FIFO */
+#define U2D_EPMEM_SIZE	((unsigned)8192)
 
-enum ep0_state {
-	WAIT_FOR_SETUP,
-	SETUP_STAGE,
-	IN_DATA_STAGE,
-	OUT_DATA_STAGE,
-	IN_STATUS_STAGE,
-	OUT_STATUS_STAGE,
-	STALL,
-	WAIT_ACK_SET_CONF_INTERF
-};
+#define EP0_MPS			((unsigned)64)
+#define BULK_MPS(speed)	((speed) == USB_SPEED_HIGH) ? ((unsigned)512) : ((unsigned)64)
+#define ISO_MPS(speed)	((speed) == USB_SPEED_HIGH) ? ((unsigned)1024) : ((unsigned)1023)
+#define INT_MPS(speed)	((speed) == USB_SPEED_HIGH) ? ((unsigned)1024) : ((unsigned)16)
 
-static char *ep0_state_name[] = {
-	"WAIT_FOR_SETUP", "SETUP_STAGE", "IN_DATA_STAGE", "OUT_DATA_STAGE",
-	"IN_STATUS_STAGE", "OUT_STATUS_STAGE", "STALL",
-	"WAIT_ACK_SET_CONF_INTERF"
-};
-#define EP0_STNAME(udc) ep0_state_name[(udc)->ep0state]
+#define EP0_FIFO_SIZE	((unsigned)64)
+#define BULK_FIFO_SIZE	(((unsigned)512 + 8) * 2)
+#define ISO_FIFO_SIZE	((unsigned)1024 + 8)
+#define INT_FIFO_SIZE	((unsigned)100 + 8)
+#endif
 
-#define EP0_FIFO_SIZE	16U
-#define BULK_FIFO_SIZE	64U
-#define ISO_FIFO_SIZE	256U
-#define INT_FIFO_SIZE	16U
+#define DMA_BUF_SIZE	PAGE_SIZE
+#define DMA_DESC_SIZE	PAGE_SIZE
+#define DMA_DESC_NUM	(DMA_DESC_SIZE / 16)
 
 struct udc_stats {
-	unsigned long	irqs_reset;
-	unsigned long	irqs_suspend;
-	unsigned long	irqs_resume;
-	unsigned long	irqs_reconfig;
+	struct ep0stats {
+		unsigned long		ops;
+		unsigned long		bytes;
+	} read, write;
+	unsigned long			irqs;
 };
 
-#define NR_USB_ENDPOINTS (1 + 5)	/* ep0 + ep1in-bulk + .. + ep3in-iso */
-#define NR_PXA_ENDPOINTS (1 + 14)	/* ep0 + epA + epB + .. + epX */
+#ifndef	UDC_EP_NUM
+#define	UDC_EP_NUM	24
+#endif
 
-/**
- * struct pxa_udc - udc structure
- * @regs: mapped IO space
- * @irq: udc irq
- * @clk: udc clock
- * @usb_gadget: udc gadget structure
- * @driver: bound gadget (zero, g_ether, g_file_storage, ...)
- * @dev: device
- * @mach: machine info, used to activate specific GPIO
- * @ep0state: control endpoint state machine state
- * @stats: statistics on udc usage
- * @udc_usb_ep: array of usb endpoints offered by the gadget
- * @pxa_ep: array of pxa available endpoints
- * @config: UDC active configuration
- * @last_interface: UDC interface of the last SET_INTERFACE host request
- * @last_alternate: UDC altsetting of the last SET_INTERFACE host request
- * @udccsr0: save of udccsr0 in case of suspend
- * @debugfs_root: root entry of debug filesystem
- * @debugfs_state: debugfs entry for "udcstate"
- * @debugfs_queues: debugfs entry for "queues"
- * @debugfs_eps: debugfs entry for "epstate"
- */
-struct pxa_udc {
-	void __iomem				*regs;
-	int					irq;
-	struct clk				*clk;
+#define	PXA_U2D_EP_NUM	16
 
+#define HALF_EP_NUM	(PXA_U2D_EP_NUM / 2)
+
+#define UDC_LG_EP_NUM	16
+
+
+struct pxa27x_udc {
 	struct usb_gadget			gadget;
 	struct usb_gadget_driver		*driver;
-	struct device				*dev;
-	struct pxa2xx_udc_mach_info		*mach;
-
-	enum ep0_state				ep0state;
+	struct pxa3xx_comp			cdev;
+	struct list_head unused_ep_list;		/* all the eps the driver can use*/
+	struct list_head used_ep_list;			/* all the eps the driver has used*/
+	struct otg_transceiver			*transceiver;
 	struct udc_stats			stats;
+	unsigned				got_irq : 1,
+						got_disc : 1,
+						has_cfr : 1,
+						req_pending : 1,
+						req_std : 1;
 
-	struct udc_usb_ep			udc_usb_ep[NR_USB_ENDPOINTS];
-	struct pxa_ep				pxa_ep[NR_PXA_ENDPOINTS];
+#define start_watchdog(dev) mod_timer(&dev->timer, jiffies + (HZ/200))
+	struct timer_list			timer;
 
-	unsigned				config:2;
-	unsigned				last_interface:3;
-	unsigned				last_alternate:3;
+	struct device				*dev;
+	struct clk				*clk;
+	u64					dma_mask;
+	struct pxa27x_ep			ep [UDC_LG_EP_NUM];
 
+#if defined(CONFIG_USB_PXA27X_UDC)
+	struct pxa2xx_udc_mach_info		*mach;
 #ifdef CONFIG_PM
 	unsigned				udccsr0;
 #endif
-#ifdef CONFIG_USB_GADGET_DEBUG_FS
-	struct dentry				*debugfs_root;
-	struct dentry				*debugfs_state;
-	struct dentry				*debugfs_queues;
-	struct dentry				*debugfs_eps;
+#elif defined(CONFIG_USB_PXA3XX_U2D)
+	struct pxa3xx_u2d_mach_info		*mach;
+#ifdef CONFIG_PM
+	unsigned u2dcr;
+	unsigned u2dicr;
+	unsigned u2dcsr0;
+#ifdef CONFIG_CPU_PXA310
+	unsigned u2dotgcr;
+	unsigned u2dotgicr;
 #endif
+#endif
+#endif
+
+	unsigned stp_gpio_irq_en : 1,
+u2d_clk_dis: 1,
+u2d_irq_dis: 1,
+ulpi_dat3_work: 1;
+
+	int u2d_dp;
+	int u2d_ts;
+	int ulpi_int;
+
+	struct otg_xceiv_ops		*xv_ops;
+
+	void __iomem *cwsbr_base;
+#endif
+	struct timer_list dvfm_timer;
 };
 
-static inline struct pxa_udc *to_gadget_udc(struct usb_gadget *gadget)
-{
-	return container_of(gadget, struct pxa_udc, gadget);
-}
+/*-------------------------------------------------------------------------*/
+#if 0
+#ifdef DEBUG
+#define HEX_DISPLAY(n)	do { \
+	if (machine_is_mainstone()) {\
+		MST_LEDDAT1 = (n); } \
+	} while (0)
+
+#define HEX_DISPLAY1(n)	HEX_DISPLAY(n)
+
+#define HEX_DISPLAY2(n)	do { \
+	if (machine_is_mainstone()) {\
+		MST_LEDDAT2 = (n); } \
+	} while (0)
+
+#endif /* DEBUG */
+#endif
+/*-------------------------------------------------------------------------*/
+
+/* LEDs are only for debug */
+#ifndef HEX_DISPLAY
+#define HEX_DISPLAY(n)		do {} while (0)
+#endif
+
+#ifndef LED_CONNECTED_ON
+#define LED_CONNECTED_ON	do {} while (0)
+#define LED_CONNECTED_OFF	do {} while (0)
+#endif
+#ifndef LED_EP0_ON
+#define LED_EP0_ON		do {} while (0)
+#define LED_EP0_OFF		do {} while (0)
+#endif
+
+/*-------------------------------------------------------------------------*/
 
 /*
- * Debugging/message support
+ * Debugging support vanishes in non-debug builds.  DBG_NORMAL should be
+ * mostly silent during normal use/testing, with no timing side-effects.
  */
-#define ep_dbg(ep, fmt, arg...) \
-	dev_dbg(ep->dev->dev, "%s:%s: " fmt, EPNAME(ep), __func__, ## arg)
-#define ep_vdbg(ep, fmt, arg...) \
-	dev_vdbg(ep->dev->dev, "%s:%s: " fmt, EPNAME(ep), __func__, ## arg)
-#define ep_err(ep, fmt, arg...) \
-	dev_err(ep->dev->dev, "%s:%s: " fmt, EPNAME(ep), __func__, ## arg)
-#define ep_info(ep, fmt, arg...) \
-	dev_info(ep->dev->dev, "%s:%s: " fmt, EPNAME(ep), __func__, ## arg)
-#define ep_warn(ep, fmt, arg...) \
-	dev_warn(ep->dev->dev, "%s:%s:" fmt, EPNAME(ep), __func__, ## arg)
+#define DBG_NORMAL	1	/* error paths, device state transitions */
+#define DBG_VERBOSE	2	/* add some success path trace info */
+#define DBG_NOISY	3	/* ... even more: request level */
+#define DBG_VERY_NOISY	4	/* ... even more: packet level */
 
-#endif /* __LINUX_USB_GADGET_PXA27X_H */
+#ifdef DEBUG
+
+static const char *state_name[] = {
+	"EP0_IDLE",
+	"EP0_IN_DATA_PHASE", "EP0_OUT_DATA_PHASE",
+	"EP0_END_XFER", "EP0_STALL"
+};
+
+#define DMSG(stuff...) printk(KERN_DEBUG stuff)
+
+#ifdef VERBOSE
+#    define UDC_DEBUG DBG_VERY_NOISY
+#else
+#    define UDC_DEBUG DBG_NORMAL
+#endif
+
+#if defined(CONFIG_USB_PXA27X_UDC)
+static void __attribute__ ((__unused__))
+dump_udccr(const char *label)
+{
+	u32	udccr = UDCCR;
+	DMSG("%s 0x%08x =%s%s%s%s%s%s%s%s%s%s, con=%d,inter=%d,altinter=%d\n",
+		label, udccr,
+		(udccr & UDCCR_OEN) ? " oen":"",
+		(udccr & UDCCR_AALTHNP) ? " aalthnp":"",
+		(udccr & UDCCR_AHNP) ? " rem" : "",
+		(udccr & UDCCR_BHNP) ? " rstir" : "",
+		(udccr & UDCCR_DWRE) ? " dwre" : "",
+		(udccr & UDCCR_SMAC) ? " smac" : "",
+		(udccr & UDCCR_EMCE) ? " emce" : "",
+		(udccr & UDCCR_UDR) ? " udr" : "",
+		(udccr & UDCCR_UDA) ? " uda" : "",
+		(udccr & UDCCR_UDE) ? " ude" : "",
+		(udccr & UDCCR_ACN) >> UDCCR_ACN_S,
+		(udccr & UDCCR_AIN) >> UDCCR_AIN_S,
+		(udccr & UDCCR_AAISN) >> UDCCR_AAISN_S);
+}
+
+static void __attribute__ ((__unused__))
+dump_udccsr0(const char *label)
+{
+	u32		udccsr0 = UDCCSR0;
+
+	DMSG("%s 0x%08x =%s%s%s%s%s%s%s\n",
+		label, udccsr0,
+		(udccsr0 & UDCCSR0_SA) ? " sa" : "",
+		(udccsr0 & UDCCSR0_RNE) ? " rne" : "",
+		(udccsr0 & UDCCSR0_FST) ? " fst" : "",
+		(udccsr0 & UDCCSR0_SST) ? " sst" : "",
+		(udccsr0 & UDCCSR0_DME) ? " dme" : "",
+		(udccsr0 & UDCCSR0_IPR) ? " ipr" : "",
+		(udccsr0 & UDCCSR0_OPC) ? " opr" : "");
+}
+
+static void __attribute__ ((__unused__))
+dump_state(struct pxa27x_udc *dev)
+{
+	unsigned	i;
+
+	DMSG("%s udcicr %02X.%02X, udcsir %02X.%02x, udcfnr %02X\n",
+		state_name[dev->cdev.ep0state],
+		UDCICR1, UDCICR0, UDCISR1, UDCISR0, UDCFNR);
+	dump_udccr("udccr");
+
+	if (!dev->driver) {
+		DMSG("no gadget driver bound\n");
+		return;
+	} else
+		DMSG("ep0 driver '%s'\n", dev->driver->driver.name);
+
+
+	dump_udccsr0("udccsr0");
+	DMSG("ep0 IN %lu/%lu, OUT %lu/%lu\n",
+		dev->stats.write.bytes, dev->stats.write.ops,
+		dev->stats.read.bytes, dev->stats.read.ops);
+
+	for (i = 1; i < UDC_EP_NUM; i++) {
+		if (dev->ep[i].desc == 0)
+			continue;
+		DMSG("udccs%d = %02x\n", i, *dev->ep->reg_udccsr);
+	}
+}
+
+#if 0
+static void dump_regs(u8 ep)
+{
+	DMSG("EP:%d UDCCSR:0x%08x UDCBCR:0x%08x\n UDCCR:0x%08x\n",
+		ep, UDCCSN(ep), UDCBCN(ep), UDCCN(ep));
+}
+static void dump_req(struct pxa27x_request *req)
+{
+	struct usb_request *r = &req->req;
+
+	DMSG("%s: buf:0x%08x length:%d dma:0x%08x actual:%d\n",
+			__FUNCTION__, (unsigned)r->buf, r->length,
+			r->dma,	r->actual);
+}
+#endif
+#elif defined(CONFIG_USB_PXA3XX_U2D)
+static void __attribute__((__unused__))
+dump_u2dcr(const char *label) {
+}
+
+static void __attribute__((__unused__))
+dump_u2dcsr0(const char *label) {
+}
+
+#if 0
+static void __attribute__((__unused__))
+dump_state(struct pxa3xx_u2d *dev) {
+	unsigned i;
+	u32 ep_num = HALF_EP_NUM;
+
+	if (cpu_is_pxa310())
+		ep_num = PXA_U2D_EP_NUM;
+
+	DMSG("%s u2dicr %02X, u2disr %02X, u2dfnr %02X\n",
+	     state_name[dev->cdev.ep0state],
+	     U2DICR, U2DISR, U2DFNR);
+	dump_u2dcr("u2dcr");
+
+	if (!dev->driver) {
+		DMSG("no gadget driver bound\n");
+		return;
+	} else
+		DMSG("ep0 driver '%s'\n", dev->driver->driver.name);
+
+
+	dump_u2dcsr0("u2dcsr0");
+	DMSG("ep0 IN %lu/%lu, OUT %lu/%lu\n",
+	     dev->stats.write.bytes, dev->stats.write.ops,
+	     dev->stats.read.bytes, dev->stats.read.ops);
+
+	for (i = 1; i < ep_num; i++) {
+		if (dev->ep [i].desc == 0)
+			continue;
+		DMSG("u2dcs%d = %02x\n", i, U2DCSR(i));
+	}
+}
+#endif
+#endif
+
+#else
+
+#define DMSG(stuff...)		do {} while (0)
+
+#define	dump_udccr(x)	do {} while (0)
+#define	dump_udccsr0(x)	do {} while (0)
+#define	dump_state(x)	do {} while (0)
+
+#define UDC_DEBUG ((unsigned)0)
+
+#endif
+
+#define DBG(lvl, stuff...) do { \
+				if ((lvl) <= UDC_DEBUG) \
+					DMSG(stuff); } while (0)
+
+#if defined(CONFIG_USB_PXA3XX_U2D)
+#define PXA320_U2D_TERMSEL	MFP_PIN_GPIO100
+#define PXA300_U2D_DETECT	EXT0_GPIO(6)
+#define PXA320_U2D_DETECT	MFP_PIN_GPIO46
+#define PXA310_ULPI_INT	MFP_PIN_GPIO33
+#endif
+
+/*  for usb composite driver */
+extern int set_eps(__u8 num_eps, struct usb_endpoint_descriptor *p_ep_desc, int len, int config, int interface, int alt);
+/* the above function must call the func -- comp_set_ep*/
+extern void udc_reinit(void);
+extern struct usb_gadget_driver *stop_udc(struct usb_gadget_driver *driver);
+extern int get_extra_descriptor(char *buffer, unsigned size, unsigned char type, void **ptr);
+#endif /* __LINUX_USB_GADGET_PXA3XX_H */
+

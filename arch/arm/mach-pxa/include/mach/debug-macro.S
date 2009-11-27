@@ -18,7 +18,11 @@
 		tst	\rx, #1			@ MMU enabled?
 		moveq	\rx, #0x40000000		@ physical
 		movne	\rx, #io_p2v(0x40000000)	@ virtual
+#if defined(CONFIG_MACH_LITTLETON)
+		orr	\rx, \rx, #0x00700000
+#else
 		orr	\rx, \rx, #0x00100000
+#endif
 		.endm
 
 #define UART_SHIFT	2

@@ -38,7 +38,14 @@
 #include <asm/irq.h>
 #include <asm/io.h>
 #include <mach/i2c.h>
+#include <mach/pxa-regs.h>
 
+#if defined(CONFIG_PXA3xx_DVFM)
+#include <mach/dvfm.h>
+#include <mach/pxa3xx_dvfm.h>
+#include <asm/atomic.h>
+#endif
+#if 0
 /*
  * I2C registers and bit definitions
  */
@@ -47,6 +54,7 @@
 #define ICR		(0x10)
 #define ISR		(0x18)
 #define ISAR		(0x20)
+#endif
 
 #define ICR_START	(1 << 0)	   /* start bit */
 #define ICR_STOP	(1 << 1)	   /* stop bit */
@@ -200,6 +208,46 @@ static void i2c_pxa_show_state(struct pxa_i2c *i2c, int lno, const char *fname)
 #define show_state(i2c) do { } while (0)
 #define decode_ISR(val) do { } while (0)
 #define decode_ICR(val) do { } while (0)
+#endif
+
+#define I2C_MULTIM_DELAY_US	200
+#define OSCR_MASK		(~1UL)
+/* Stores the timestamp of the previous I2C operation */
+static unsigned int prev_time;
+
+static unsigned int read_time(void)
+{
+#ifdef CONFIG_PXA_32KTIMER
+	return OSCR4;
+#else
+	return OSCR;
+#endif
+}
+
+#ifdef CONFIG_PXA3xx_DVFM
+static int dvfm_dev_idx;
+
+static void set_dvfm_constraint(void)
+{
+	/* Disable Low power mode */
+	dvfm_disable_op_name("D1", dvfm_dev_idx);
+	dvfm_disable_op_name("D2", dvfm_dev_idx);
+	if (cpu_is_pxa935())
+		dvfm_disable_op_name("CG", dvfm_dev_idx);
+}
+
+static void unset_dvfm_constraint(void)
+{
+	/* Enable Low power mode */
+	dvfm_enable_op_name("D1", dvfm_dev_idx);
+	dvfm_enable_op_name("D2", dvfm_dev_idx);
+	if (cpu_is_pxa935())
+		dvfm_enable_op_name("CG", dvfm_dev_idx);
+}
+
+#else
+static void set_dvfm_constraint() {}
+static void unset_dvfm_constraint() {}
 #endif
 
 #define eedbg(lvl, x...) do { if ((lvl) < 1) { printk(KERN_DEBUG "" x); } } while(0)
@@ -629,9 +677,11 @@ static int i2c_pxa_pio_set_master(struct pxa_i2c *i2c)
 static int i2c_pxa_do_pio_xfer(struct pxa_i2c *i2c,
 			       struct i2c_msg *msg, int num)
 {
-	unsigned long timeout = 500000; /* 5 seconds */
+	long timeout = 500000; /* 5 seconds */
+	unsigned long flags;
 	int ret = 0;
 
+	local_irq_save(flags);
 	ret = i2c_pxa_pio_set_master(i2c);
 	if (ret)
 		goto out;
@@ -642,6 +692,7 @@ static int i2c_pxa_do_pio_xfer(struct pxa_i2c *i2c,
 	i2c->msg_ptr = 0;
 	i2c->irqlogidx = 0;
 
+	set_dvfm_constraint();
 	i2c_pxa_start_message(i2c);
 
 	while (timeout-- && i2c->msg_num > 0) {
@@ -650,6 +701,7 @@ static int i2c_pxa_do_pio_xfer(struct pxa_i2c *i2c,
 	}
 
 	i2c_pxa_stop_message(i2c);
+	unset_dvfm_constraint();
 
 	/*
 	 * We place the return code in i2c->msg_idx.
@@ -657,8 +709,11 @@ static int i2c_pxa_do_pio_xfer(struct pxa_i2c *i2c,
 	ret = i2c->msg_idx;
 
 out:
-	if (timeout == 0)
+	local_irq_restore(flags);
+	if (timeout <= 0) {
+		ret = I2C_RETRY;
 		i2c_pxa_scream_blue_murder(i2c, "timeout");
+	}
 
 	return ret;
 }
@@ -696,7 +751,7 @@ static int i2c_pxa_do_xfer(struct pxa_i2c *i2c, struct i2c_msg *msg, int num)
 	i2c->msg_idx = 0;
 	i2c->msg_ptr = 0;
 	i2c->irqlogidx = 0;
-
+	set_dvfm_constraint();
 	i2c_pxa_start_message(i2c);
 
 	spin_unlock_irq(&i2c->lock);
@@ -706,6 +761,7 @@ static int i2c_pxa_do_xfer(struct pxa_i2c *i2c, struct i2c_msg *msg, int num)
 	 */
 	timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 5);
 	i2c_pxa_stop_message(i2c);
+	unset_dvfm_constraint();
 
 	/*
 	 * We place the return code in i2c->msg_idx.
@@ -724,7 +780,17 @@ static int i2c_pxa_pio_xfer(struct i2c_adapter *adap,
 {
 	struct pxa_i2c *i2c = adap->algo_data;
 	int ret, i;
+	unsigned int time, delta_time, delta;
 
+	if (cpu_is_pxa930() || cpu_is_pxa935()) {
+		time = read_time();
+		delta_time = (time > prev_time) ? (time - prev_time)
+				: (OSCR_MASK - prev_time + time);
+		/*delta = (delta_time * 1000 * 1000) / CLOCK_TICK_RATE;*/
+		delta = (delta_time << 20) / CLOCK_TICK_RATE;
+		if (delta < I2C_MULTIM_DELAY_US)
+			udelay(I2C_MULTIM_DELAY_US - delta);
+	}
 	/* If the I2C controller is disabled we need to reset it
 	  (probably due to a suspend/resume destroying state). We do
 	  this here as we can then avoid worrying about resuming the
@@ -745,6 +811,8 @@ static int i2c_pxa_pio_xfer(struct i2c_adapter *adap,
 	ret = -EREMOTEIO;
  out:
 	i2c_pxa_set_slave(i2c, ret);
+	if (cpu_is_pxa930() || cpu_is_pxa935())
+		prev_time = read_time();
 	return ret;
 }
 
@@ -772,19 +840,25 @@ static void i2c_pxa_irq_txempty(struct pxa_i2c *i2c, u32 isr)
 	 * If ISR_ALD is set, we lost arbitration.
 	 */
 	if (isr & ISR_ALD) {
-		/*
-		 * Do we need to do anything here?  The PXA docs
-		 * are vague about what happens.
-		 */
-		i2c_pxa_scream_blue_murder(i2c, "ALD set");
+		/* Arbitration Failure */
+		if (cpu_is_pxa930() || cpu_is_pxa935())
+			i2c_pxa_master_complete(i2c, I2C_RETRY);
+		else {
+			/*
+			 * Do we need to do anything here?  The PXA docs
+			 * are vague about what happens.
+			 */
+			i2c_pxa_scream_blue_murder(i2c, "ALD set");
 
-		/*
-		 * We ignore this error.  We seem to see spurious ALDs
-		 * for seemingly no reason.  If we handle them as I think
-		 * they should, we end up causing an I2C error, which
-		 * is painful for some systems.
-		 */
-		return; /* ignore */
+			/*
+			 * We ignore this error.  We seem to see spurious ALDs
+			 * for seemingly no reason. If we handle them as I think
+			 * they should, we end up causing an I2C error, which
+			 * is painful for some systems.
+			 */
+			return; /* ignore */
+		}
+		writel(ISR_ALD, _ISR(i2c));
 	}
 
 	if (isr & ISR_BED) {
@@ -801,6 +875,7 @@ static void i2c_pxa_irq_txempty(struct pxa_i2c *i2c, u32 isr)
 			else
 				ret = XFER_NAKED;
 		}
+		writel(ISR_BED, _ISR(i2c));
 		i2c_pxa_master_complete(i2c, ret);
 	} else if (isr & ISR_RWM) {
 		/*
@@ -917,23 +992,34 @@ static irqreturn_t i2c_pxa_handler(int this_irq, void *dev_id)
 	/*
 	 * Always clear all pending IRQs.
 	 */
-	writel(isr & (ISR_SSD|ISR_ALD|ISR_ITE|ISR_IRF|ISR_SAD|ISR_BED), _ISR(i2c));
 
-	if (isr & ISR_SAD)
+	if (isr & ISR_SAD) {
+		writel(ISR_SAD, _ISR(i2c));
 		i2c_pxa_slave_start(i2c, isr);
-	if (isr & ISR_SSD)
+	}
+	if (isr & ISR_SSD) {
+		writel(ISR_SSD, _ISR(i2c));
 		i2c_pxa_slave_stop(i2c);
+	}
 
 	if (i2c_pxa_is_slavemode(i2c)) {
-		if (isr & ISR_ITE)
+		if (isr & ISR_ITE) {
+			writel(ISR_ITE, _ISR(i2c));
 			i2c_pxa_slave_txempty(i2c, isr);
-		if (isr & ISR_IRF)
+		}
+		if (isr & ISR_IRF) {
+			writel(ISR_IRF, _ISR(i2c));
 			i2c_pxa_slave_rxfull(i2c, isr);
+		}
 	} else if (i2c->msg) {
-		if (isr & ISR_ITE)
+		if (isr & ISR_ITE) {
+			writel(ISR_ITE, _ISR(i2c));
 			i2c_pxa_irq_txempty(i2c, isr);
-		if (isr & ISR_IRF)
+		}
+		if (isr & ISR_IRF) {
+			writel(ISR_IRF, _ISR(i2c));
 			i2c_pxa_irq_rxfull(i2c, isr);
+		}
 	} else {
 		i2c_pxa_scream_blue_murder(i2c, "spurious irq");
 	}
@@ -946,6 +1032,17 @@ static int i2c_pxa_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num
 {
 	struct pxa_i2c *i2c = adap->algo_data;
 	int ret, i;
+	unsigned int time, delta_time, delta;
+
+	if (cpu_is_pxa930() || cpu_is_pxa935()) {
+		time = read_time();
+		delta_time = (time > prev_time) ? (time - prev_time)
+				: (OSCR_MASK - prev_time + time);
+		/* delta = (delta_time * 1000 * 1000) / CLOCK_TICK_RATE; */
+		delta = (delta_time << 20) / CLOCK_TICK_RATE;
+		if (delta < I2C_MULTIM_DELAY_US)
+			udelay(I2C_MULTIM_DELAY_US - delta);
+	}
 
 	for (i = adap->retries; i >= 0; i--) {
 		ret = i2c_pxa_do_xfer(i2c, msgs, num);
@@ -960,6 +1057,8 @@ static int i2c_pxa_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num
 	ret = -EREMOTEIO;
  out:
 	i2c_pxa_set_slave(i2c, ret);
+	if (cpu_is_pxa930() || cpu_is_pxa935())
+		prev_time = read_time();
 	return ret;
 }
 
@@ -1081,6 +1180,8 @@ static int i2c_pxa_probe(struct platform_device *dev)
 	printk(KERN_INFO "I2C: %s: PXA I2C adapter\n",
 	       i2c->adap.dev.bus_id);
 #endif
+	if (cpu_is_pxa930() || cpu_is_pxa935())
+		prev_time = read_time();
 	return 0;
 
 eadapt:
@@ -1153,12 +1254,18 @@ static struct platform_driver i2c_pxa_driver = {
 
 static int __init i2c_adap_pxa_init(void)
 {
+#ifdef CONFIG_PXA3xx_DVFM
+	dvfm_register("I2C", &dvfm_dev_idx);
+#endif
 	return platform_driver_register(&i2c_pxa_driver);
 }
 
 static void __exit i2c_adap_pxa_exit(void)
 {
 	platform_driver_unregister(&i2c_pxa_driver);
+#ifdef CONFIG_PXA3xx_DVFM
+	dvfm_unregister("I2C", &dvfm_dev_idx);
+#endif
 }
 
 MODULE_LICENSE("GPL");

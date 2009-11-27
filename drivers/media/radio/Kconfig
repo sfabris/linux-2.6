@@ -387,4 +387,35 @@ config USB_MR800
 	  To compile this driver as a module, choose M here: the
 	  module will be called radio-mr800.
 
+config RADIO_SI4703
+	tristate "si4703 FM radio support"
+	depends on VIDEO_V4L2
+	---help---
+	  Say Y here if you want to enable fm radio.
+
+choice
+	prompt "si4703 FM band select"
+	---help---
+	  Select the FM band
+
+config RADIO_FM_EURO
+	boolean "USA/Europe FM band"
+	depends on RADIO_SI4703
+	---help---
+	  Say Y here if you want to USA/Europe FM band
+
+config RADIO_FM_JAPAN_WIDEBAND
+	boolean "Japan FM wide band"
+	depends on RADIO_SI4703
+	---help---
+	  Say Y here if you want to Japan FM wide band
+
+config RADIO_FM_JAPAN
+	boolean "Japan FM band"
+	depends on RADIO_SI4703
+	---help---
+	  Say Y here if you want to Japan FM band
+
+endchoice
+
 endif # RADIO_ADAPTERS

@@ -212,6 +212,8 @@ struct hc_driver {
 	int	(*bus_suspend)(struct usb_hcd *);
 	int	(*bus_resume)(struct usb_hcd *);
 	int	(*start_port_reset)(struct usb_hcd *, unsigned port_num);
+	int	(*disconnect)(struct usb_hcd *);
+	int	(*connect)(struct usb_hcd *, struct usb_device*);
 
 		/* force handover of high-speed port to full-speed companion */
 	void	(*relinquish_port)(struct usb_hcd *, int);

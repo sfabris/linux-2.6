@@ -47,6 +47,14 @@ struct pxa27x_keypad_platform_data {
 	int		rotary1_up_key;
 	int		rotary1_down_key;
 
+#ifdef CONFIG_CPU_PXA930
+	/* enhanced rotary encoder */
+	int		enable_enhanced_rotary;
+	int		enhanced_rotary_rel_code;
+	int		enhanced_rotary_up_key;
+	int		enhanced_rotary_down_key;
+#endif
+
 	/* key debounce interval */
 	unsigned int	debounce_interval;
 };

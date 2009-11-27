@@ -88,6 +88,19 @@ config VT_HW_CONSOLE_BINDING
 	 information. For framebuffer console users, please refer to
 	 <file:Documentation/fb/fbcon.txt>.
 
+config DEVMEM
+	bool "Memory device driver"
+	default y
+	help
+	  The memory driver provides two character devices, mem and kmem, which
+	  provide access to the system's memory. The mem device is a view of
+	  physical memory, and each byte in the device corresponds to the
+	  matching physical address. The kmem device is the same as mem, but
+	  the addresses correspond to the kernel's virtual address space rather
+	  than physical memory. These devices are standard parts of a Linux
+	  system and most users should say Y here. You might say N if very
+	  security conscience or memory is tight.
+
 config DEVKMEM
 	bool "/dev/kmem virtual device support"
 	default y
@@ -1050,6 +1063,32 @@ config MMTIMER
 	  The mmtimer device allows direct userspace access to the
 	  Altix system timer.
 
+config PXA3xx_GCU
+        tristate "PXA3xx Processor 2D Graphics Controller Driver"
+        depends on PXA3xx
+        help
+          Please say Y here if want to support 2D GCU on PXA3xx
+
+config PXA3xx_MVED
+	tristate "MVED Driver"
+	depends on PXA3xx
+	help
+	  Please say Y here if want to support MVED.
+config MVED_RES_MEM 
+	bool "Allocate reserved memory by MVED driver"
+	depends on PXA3xx_MVED
+	help
+	  The surface and mved working buffer needs physical contiguous 
+	  memory. Please say Y here if you want MVED driver maintain the 
+	  reserved memory. 
+
+config ISPT
+	bool "Support ISPT Tools"
+	depends on CPU_PXA930
+	help
+	  Enable ISPT tool that's used to dump timestamp message
+	default n
+
 source "drivers/char/tpm/Kconfig"
 
 config TELCLOCK
@@ -1071,7 +1110,31 @@ config DEVPORT
 	depends on ISA || PCI
 	default y
 
+config DCC_TTY
+	tristate "DCC tty driver"
+	depends on ARM
+
 source "drivers/s390/char/Kconfig"
 
+config PXA930_ACIPC
+	tristate "PXA930 AC-IPC Driver"
+	depends on CPU_PXA930
+	help
+	  Please say Y here if want to support Application to Communication
+	  Intel-Processor Communication on PXA930 chip
+
+config CHARGE_MICCO
+	tristate "MICCO based charge"
+	depends on PXA3xx_MICCO
+	default y
+	help
+	  Say Y here if you want to enable micco charge driver
+
+config HSDETECT_MICCO
+	tristate "MICCO based hsdetect"
+	depends on PXA3xx_MICCO
+	default y
+	help
+	  Say Y here if you want to enable micco hsdetect driver
 endmenu
 

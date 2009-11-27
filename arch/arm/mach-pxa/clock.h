@@ -58,6 +58,29 @@ struct clk {
 		.delay	= _delay,			\
 	}
 
+#ifdef CONFIG_PXA3xx
+#define PXA3xx_CKEN(_name, _cken, _rate, _delay, _dev)	\
+	{						\
+		.name	= _name,			\
+		.dev	= _dev,				\
+		.ops	= &clk_pxa3xx_cken_ops,		\
+		.rate	= _rate,			\
+		.cken	= CKEN_##_cken,			\
+		.delay	= _delay,			\
+	}
+
+#define PXA3xx_CK(_name, _cken, _ops, _dev)		\
+	{						\
+		.name	= _name,			\
+		.dev	= _dev,				\
+		.ops	= _ops,				\
+		.cken	= CKEN_##_cken,			\
+	}
+extern const struct clkops clk_pxa3xx_cken_ops;
+extern void clk_pxa3xx_cken_enable(struct clk *);
+extern void clk_pxa3xx_cken_disable(struct clk *);
+#endif
+
 extern const struct clkops clk_cken_ops;
 
 void clk_cken_enable(struct clk *clk);

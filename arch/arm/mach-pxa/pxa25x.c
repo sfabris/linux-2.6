@@ -21,7 +21,6 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/suspend.h>
-#include <linux/sysdev.h>
 
 #include <mach/hardware.h>
 #include <mach/irqs.h>
@@ -204,13 +203,31 @@ static struct clk pxa25x_clks[] = {
 #define SAVE(x)		sleep_save[SLEEP_SAVE_##x] = x
 #define RESTORE(x)	x = sleep_save[SLEEP_SAVE_##x]
 
+#define RESTORE_GPLEVEL(n) do { \
+	GPSR##n = sleep_save[SLEEP_SAVE_GPLR##n]; \
+	GPCR##n = ~sleep_save[SLEEP_SAVE_GPLR##n]; \
+} while (0)
+
 /*
  * List of global PXA peripheral registers to preserve.
  * More ones like CP and general purpose register values are preserved
  * with the stack pointer in sleep.S.
  */
-enum {
+enum {	SLEEP_SAVE_START = 0,
+
+	SLEEP_SAVE_GPLR0, SLEEP_SAVE_GPLR1, SLEEP_SAVE_GPLR2,
+	SLEEP_SAVE_GPDR0, SLEEP_SAVE_GPDR1, SLEEP_SAVE_GPDR2,
+	SLEEP_SAVE_GRER0, SLEEP_SAVE_GRER1, SLEEP_SAVE_GRER2,
+	SLEEP_SAVE_GFER0, SLEEP_SAVE_GFER1, SLEEP_SAVE_GFER2,
+	SLEEP_SAVE_PGSR0, SLEEP_SAVE_PGSR1, SLEEP_SAVE_PGSR2,
+
+	SLEEP_SAVE_GAFR0_L, SLEEP_SAVE_GAFR0_U,
+	SLEEP_SAVE_GAFR1_L, SLEEP_SAVE_GAFR1_U,
+	SLEEP_SAVE_GAFR2_L, SLEEP_SAVE_GAFR2_U,
+
 	SLEEP_SAVE_PSTR,
+
+	SLEEP_SAVE_ICMR,
 	SLEEP_SAVE_CKEN,
 	SLEEP_SAVE_COUNT
 };
@@ -218,13 +235,43 @@ enum {
 
 static void pxa25x_cpu_pm_save(unsigned long *sleep_save)
 {
+	SAVE(GPLR0); SAVE(GPLR1); SAVE(GPLR2);
+	SAVE(GPDR0); SAVE(GPDR1); SAVE(GPDR2);
+	SAVE(GRER0); SAVE(GRER1); SAVE(GRER2);
+	SAVE(GFER0); SAVE(GFER1); SAVE(GFER2);
+	SAVE(PGSR0); SAVE(PGSR1); SAVE(PGSR2);
+
+	SAVE(GAFR0_L); SAVE(GAFR0_U);
+	SAVE(GAFR1_L); SAVE(GAFR1_U);
+	SAVE(GAFR2_L); SAVE(GAFR2_U);
+
+	SAVE(ICMR); ICMR = 0;
 	SAVE(CKEN);
 	SAVE(PSTR);
 }
 
 static void pxa25x_cpu_pm_restore(unsigned long *sleep_save)
 {
+	/* ensure not to come back here if it wasn't intended */
+	PSPR = 0;
+
+	/* restore registers */
+	RESTORE_GPLEVEL(0); RESTORE_GPLEVEL(1); RESTORE_GPLEVEL(2);
+	RESTORE(GPDR0); RESTORE(GPDR1); RESTORE(GPDR2);
+	RESTORE(GAFR0_L); RESTORE(GAFR0_U);
+	RESTORE(GAFR1_L); RESTORE(GAFR1_U);
+	RESTORE(GAFR2_L); RESTORE(GAFR2_U);
+	RESTORE(GRER0); RESTORE(GRER1); RESTORE(GRER2);
+	RESTORE(GFER0); RESTORE(GFER1); RESTORE(GFER2);
+	RESTORE(PGSR0); RESTORE(PGSR1); RESTORE(PGSR2);
+
+	PSSR = PSSR_RDH | PSSR_PH;
+
 	RESTORE(CKEN);
+
+	ICLR = 0;
+	ICCR = 1;
+	RESTORE(ICMR);
 	RESTORE(PSTR);
 }
 
@@ -320,17 +367,13 @@ static struct platform_device *pxa25x_devices[] __initdata = {
 
 static struct sys_device pxa25x_sysdev[] = {
 	{
-		.cls	= &pxa_irq_sysclass,
-	}, {
 		.cls	= &pxa2xx_mfp_sysclass,
-	}, {
-		.cls	= &pxa_gpio_sysclass,
 	},
 };
 
 static int __init pxa25x_init(void)
 {
-	int i, ret = 0;
+	int ret = 0;
 
 	if (cpu_is_pxa25x()) {
 
@@ -343,16 +386,8 @@ static int __init pxa25x_init(void)
 
 		pxa25x_init_pm();
 
-		for (i = 0; i < ARRAY_SIZE(pxa25x_sysdev); i++) {
-			ret = sysdev_register(&pxa25x_sysdev[i]);
-			if (ret)
-				pr_err("failed to register sysdev[%d]\n", i);
-		}
-
 		ret = platform_add_devices(pxa25x_devices,
 					   ARRAY_SIZE(pxa25x_devices));
-		if (ret)
-			return ret;
 	}
 
 	/* Only add HWUART for PXA255/26x; PXA210/250 do not have it. */

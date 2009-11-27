@@ -81,6 +81,11 @@ ifeq ($(CONFIG_GENERIC_NVRAM),y)
 else
   obj-$(CONFIG_NVRAM)	+= nvram.o
 endif
+
+obj-$(CONFIG_PXA3xx_GCU)	+= m2d_drv.o
+obj-$(CONFIG_PXA3xx_MVED) += pxa_mved.o
+obj-$(CONFIG_ISPT)		+= pxa_ispt.o
+
 obj-$(CONFIG_TOSHIBA)		+= toshiba.o
 obj-$(CONFIG_I8K)		+= i8k.o
 obj-$(CONFIG_DS1620)		+= ds1620.o
@@ -104,10 +109,17 @@ obj-$(CONFIG_IPMI_HANDLER)	+= ipmi/
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/
 
+obj-$(CONFIG_PXA930_ACIPC) += pxa930_acipc.o
+obj-$(CONFIG_CHARGE_MICCO) 	+= micco_charger.o
+obj-$(CONFIG_HSDETECT_MICCO) 	+= micco_hsdetect.o
+
+obj-$(CONFIG_DCC_TTY)		+= dcc_tty.o
 obj-$(CONFIG_PS3_FLASH)		+= ps3flash.o
 
 obj-$(CONFIG_JS_RTC)		+= js-rtc.o
 js-rtc-y = rtc.o
+
+obj-$(CONFIG_IMM)		+= imm.o
 
 # Files generated that shall be removed upon make clean
 clean-files := consolemap_deftbl.c defkeymap.c

@@ -231,7 +231,12 @@ static int pxa27x_start_hc(struct pxa27x_ohci *ohci, struct device *dev)
 	if (retval < 0)
 		return retval;
 
-	uhchr = __raw_readl(ohci->mmio_base + UHCHR) & ~UHCHR_SSE;
+	if (cpu_is_pxa3xx())
+		uhchr = (__raw_readl(ohci->mmio_base + UHCHR) |
+			UHCHR_PCPL | UHCHR_PSPL | UHCHR_SSEP3)
+			& (~(UHCHR_SSEP1 | UHCHR_SSEP2 | UHCHR_SSE));
+	else
+		uhchr = __raw_readl(ohci->mmio_base + UHCHR) & ~UHCHR_SSE;
 	__raw_writel(uhchr, ohci->mmio_base + UHCHR);
 	__raw_writel(UHCHIE_UPRIE | UHCHIE_RWIE, ohci->mmio_base + UHCHIE);
 
@@ -243,7 +248,7 @@ static int pxa27x_start_hc(struct pxa27x_ohci *ohci, struct device *dev)
 static void pxa27x_stop_hc(struct pxa27x_ohci *ohci, struct device *dev)
 {
 	struct pxaohci_platform_data *inf;
-	uint32_t uhccoms;
+	uint32_t uhccoms, uhcrhda;
 
 	inf = dev->platform_data;
 
@@ -252,12 +257,19 @@ static void pxa27x_stop_hc(struct pxa27x_ohci *ohci, struct device *dev)
 
 	pxa27x_reset_hc(ohci);
 
+	if (cpu_is_pxa3xx()) {
+		/* set global power switch mode and clear global power */
+		uhcrhda = __raw_readl(ohci->mmio_base + UHCRHDA) & ~(RH_A_NPS | RH_A_PSM);
+		__raw_writel(uhcrhda, ohci->mmio_base + UHCRHDA);
+		__raw_writel(0x1, ohci->mmio_base + UHCRHS);
+	}
+
 	/* Host Controller Reset */
 	uhccoms = __raw_readl(ohci->mmio_base + UHCCOMS) | 0x01;
 	__raw_writel(uhccoms, ohci->mmio_base + UHCCOMS);
 	udelay(10);
 
-	clk_disable(ohci->clk);
+	/* clk_disable(ohci->clk);*/
 }
 
 
@@ -341,6 +353,10 @@ int usb_hcd_pxa27x_probe (const struct hc_driver *driver, struct platform_device
 	/* Select Power Management Mode */
 	pxa27x_ohci_select_pmm(ohci, inf->port_mode);
 
+#ifdef	CONFIG_USB_OTG
+	hcd->self.otg_port = 2;
+#endif
+
 	if (inf->power_budget)
 		hcd->power_budget = inf->power_budget;
 
@@ -389,6 +405,10 @@ void usb_hcd_pxa27x_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 
 /*-------------------------------------------------------------------------*/
 
+#ifdef CONFIG_USB_OTG
+static void start_hnp(struct ohci_hcd *ohci);
+#endif
+
 static int __devinit
 ohci_pxa27x_start (struct usb_hcd *hcd)
 {
@@ -409,8 +429,49 @@ ohci_pxa27x_start (struct usb_hcd *hcd)
 		return ret;
 	}
 
+#ifdef CONFIG_USB_OTG
+	ohci->transceiver = otg_get_transceiver();
+	if (ohci->transceiver) {
+		otg_set_host(ohci->transceiver, &hcd->self);
+		ohci->start_hnp = start_hnp;
+	} else {
+		dev_err(hcd->self.controller, "can't find otg transceiver\n");
+		return -ENODEV;
+	}
+#endif
+
 	return 0;
 }
+
+#ifdef CONFIG_USB_OTG
+static void start_hnp(struct ohci_hcd *ohci)
+{
+	struct usb_hcd *hcd = ohci_to_hcd(ohci);
+	const unsigned  port = hcd->self.otg_port - 1;
+	unsigned long   flags;
+
+	otg_start_hnp(ohci->transceiver);
+
+	local_irq_save(flags);
+	ohci->transceiver->state = OTG_STATE_A_SUSPEND;
+	writel(RH_PS_PSS, &ohci->regs->roothub.portstatus [port]);
+	local_irq_restore(flags);
+}
+
+static int ohci_pxa_connect(struct usb_hcd *hcd, struct usb_device *udev)
+{
+	return otg_connect((hcd_to_ohci(hcd))->transceiver, udev);
+}
+
+static int ohci_pxa_disconnect(struct usb_hcd *hcd)
+{
+	if (hcd && (hcd_to_ohci(hcd)->transceiver))
+                return otg_disconnect((hcd_to_ohci(hcd))->transceiver);
+        else
+                return 0;
+}
+
+#endif
 
 /*-------------------------------------------------------------------------*/
 
@@ -454,6 +515,10 @@ static const struct hc_driver ohci_pxa27x_hc_driver = {
 	.bus_resume =		ohci_bus_resume,
 #endif
 	.start_port_reset =	ohci_start_port_reset,
+#ifdef	CONFIG_USB_OTG
+	.disconnect = ohci_pxa_disconnect,
+	.connect = ohci_pxa_connect,
+#endif
 };
 
 /*-------------------------------------------------------------------------*/

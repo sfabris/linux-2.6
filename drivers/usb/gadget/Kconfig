@@ -305,6 +305,126 @@ config USB_GADGET_MUSB_HDRC
 	  This OTG-capable silicon IP is used in dual designs including
 	  the TI DaVinci, OMAP 243x, OMAP 343x, and TUSB 6010.
 
+config USB_GADGET_PXA9XX_U2O
+        depends on PXA3xx
+        bool "PXA9xx Processor USB 2.0 controller"
+        select USB_GADGET_DUALSPEED
+        help
+            PXA9xx Processor series include a high speed USB 2.0 device
+	    controller, which support high speed and full speed USB Peripheral.
+
+config USB_PXA9XX_U2O
+        tristate
+        depends on USB_GADGET_PXA9XX_U2O
+        default USB_GADGET
+	select USB_GADGET_SELECTED
+
+config USB_COMPOSITE
+	boolean "Multiple gadget drivers support (EXPERIMENTAL)"
+	depends on USB_GADGET_PXA9XX_U2O
+	default n
+	help
+	   Multiple gadget drivers support in the PXA9xx controller driver.
+	   user can insmod several gadget drivers to implement more
+	   than one function on the device. There are several restrictions
+	   to such gadget drivers, and maybe modifications to the host driver.
+
+	   supported gadget drivers combination(connect to linux host machine):
+		CDC ACM(or serial) + CDC Ethernet + mass storage
+
+config USB_OTG
+        boolean "OTG Support on PXA9xx Processor USB 2.0 controller"
+        depends on USB_EHCI_HCD && USB_GADGET_PXA9XX_U2O && PXA3xx_PMIC
+	default n
+	select USB_EHCI_PXA9XX
+        help
+
+config USB_GADGET_PXA3XX_U2D
+        depends on PXA3xx
+        bool "PXA3xx Processor USB 2.0 controller"
+        select USB_GADGET_DUALSPEED
+        help
+            PXA3xx Processor series include a high speed USB 2.0 device
+	    controller, which support high speed and full speed USB Peripheral.
+
+config USB_PXA3XX_U2D
+        tristate
+        depends on USB_GADGET_PXA3XX_U2D
+        default USB_GADGET
+	select USB_GADGET_SELECTED
+
+config USB_COMPOSITE
+	boolean "Multiple gadget drivers support (EXPERIMENTAL)"
+	depends on USB_GADGET_PXA3XX_U2D
+	default n
+	help
+	   Multiple gadget drivers support in the PXA3xx controller driver.
+	   user can insmod several gadget drivers to implement more
+	   than one function on the device. There are several restrictions
+	   to such gadget drivers, and maybe modifications to the host driver.
+
+	   supported gadget drivers combination(connect to linux host machine):
+		CDC ACM(or serial) + CDC Ethernet + mass storage
+
+config USB_OTG
+        boolean "OTG Support on PXA3xx Processor USB 2.0 controller"
+        depends on USB_GADGET_PXA3XX_U2D && USB_OHCI_HCD && CPU_PXA310
+	default y 
+        help
+           The most notable feature of USB OTG is support for a
+           "Dual-Role" device, which can act as either a device
+           or a host.  The initial role choice can be changed
+           later, when two dual-role devices talk to each other.
+
+config USB_OTG_PXA3xx_U2D
+	boolean "USB OTG support on PXA3xx Processor"
+	depends on USB_OTG && USB_GADGET_PXA3XX_U2D
+	default USB_OTG
+
+config USB_GADGET_PXA27X
+        depends on PXA27x || PXA3xx
+        boolean "PXA27x/PXA3xx Processor USB 1.1 controller"
+        help
+            PXA27x/PXA3xx Processor series include a full speed USB 1.1
+            device controller, which is different with its former on
+            PXA26x and PXA25x in the USB endpoint configuration.
+
+config USB_PXA27X_UDC
+        bool
+        depends on USB_GADGET_PXA27X
+        default USB_GADGET
+        select USB_GADGET_SELECTED
+
+config USB_COMPOSITE
+	boolean "Multiple gadget drivers support (EXPERIMENTAL)"
+	depends on USB_GADGET_PXA27X
+	default n
+	help
+	   Multiple gadget drivers support in the PXA3xx controller driver.
+	   user can insmod several gadget drivers to implement more
+	   than one function on the device. There are several restrictions
+	   to such gadget drivers, and maybe modifications to the host driver.
+
+	   supported gadget drivers combination(connect to linux host machine):
+		CDC ACM(or serial) + CDC Ethernet + mass storage
+
+config USB_OTG
+        boolean "OTG Support on PXA27x/PXA3xx Processor USB 1.1 controller"
+        depends on USB_GADGET_PXA27X && USB_OHCI_HCD && PXA3xx_PMIC
+	default y
+        help
+           The most notable feature of USB OTG is support for a
+           "Dual-Role" device, which can act as either a device
+           or a host.  The initial role choice can be changed
+           later, when two dual-role devices talk to each other.
+
+           Select this only if your PXA3xx board has a Mini-AB connector.
+
+config USB_OTG_PXA3XX
+	boolean "USB OTG support on PXA27x/PXA3xx Processor"
+	depends on USB_OTG
+	default USB_OTG
+
 config USB_GADGET_M66592
 	boolean "Renesas M66592 USB Peripheral Controller"
 	select USB_GADGET_DUALSPEED
@@ -658,6 +778,14 @@ config USB_G_PRINTER
 
 	  For more information, see Documentation/usb/gadget_printer.txt
 	  which includes sample code for accessing the device file.
+
+config USB_ANDROID
+	tristate "Android Gadget"
+	help
+	  The Android gadget provides mass storage and adb transport.
+
+	  Say "y" to link the driver statically, or "m" to build a
+	  dynamically linked module called "g_android".
 
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"

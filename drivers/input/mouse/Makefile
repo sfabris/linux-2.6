@@ -20,6 +20,8 @@ obj-$(CONFIG_MOUSE_GPIO)	+= gpio_mouse.o
 
 psmouse-objs := psmouse-base.o synaptics.o
 
+obj-$(CONFIG_MOUSE_PXA930_TRKBALL)	+= pxa930_trkball.o
+
 psmouse-$(CONFIG_MOUSE_PS2_ALPS)	+= alps.o
 psmouse-$(CONFIG_MOUSE_PS2_ELANTECH)	+= elantech.o
 psmouse-$(CONFIG_MOUSE_PS2_OLPC)	+= hgpk.o

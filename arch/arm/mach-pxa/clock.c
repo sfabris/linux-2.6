@@ -14,6 +14,7 @@
 
 #include <mach/pxa2xx-regs.h>
 #include <mach/pxa2xx-gpio.h>
+#include <mach/pxa_ispt.h>
 #include <mach/hardware.h>
 
 #include "devices.h"
@@ -34,6 +35,15 @@ static struct clk *clk_lookup(struct device *dev, const char *id)
 
 	return NULL;
 }
+
+#ifdef CONFIG_ISPT
+static int ispt_clock_msg(u32 msg, u32 param)
+{
+	return ispt_driver_msg(msg, param);
+}
+#else
+static int ispt_clock_msg(u32 msg, u32 param) { return 0; }
+#endif
 
 struct clk *clk_get(struct device *dev, const char *id)
 {
@@ -64,8 +74,10 @@ int clk_enable(struct clk *clk)
 	unsigned long flags;
 
 	spin_lock_irqsave(&clocks_lock, flags);
-	if (clk->enabled++ == 0)
+	if (clk->enabled++ == 0) {
 		clk->ops->enable(clk);
+		ispt_clock_msg(CT_P_CLOCK_ENABLE, clk->cken);
+	}
 	spin_unlock_irqrestore(&clocks_lock, flags);
 
 	if (clk->delay)
@@ -79,11 +91,14 @@ void clk_disable(struct clk *clk)
 {
 	unsigned long flags;
 
-	WARN_ON(clk->enabled == 0);
+	if (clk->enabled == 0)
+		return;
 
 	spin_lock_irqsave(&clocks_lock, flags);
-	if (--clk->enabled == 0)
+	if (--clk->enabled == 0) {
 		clk->ops->disable(clk);
+		ispt_clock_msg(CT_P_CLOCK_DISABLE, clk->cken);
+	}
 	spin_unlock_irqrestore(&clocks_lock, flags);
 }
 EXPORT_SYMBOL(clk_disable);

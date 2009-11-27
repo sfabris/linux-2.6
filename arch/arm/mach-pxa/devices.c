@@ -3,20 +3,22 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
+#include <linux/ds1wm.h>
 
 #include <mach/gpio.h>
 #include <mach/udc.h>
 #include <mach/pxafb.h>
 #include <mach/mmc.h>
 #include <mach/irda.h>
-#include <mach/i2c.h>
-#include <mach/mfp-pxa27x.h>
-#include <mach/ohci.h>
-#include <mach/pxa27x_keypad.h>
 #include <mach/pxa2xx_spi.h>
 #include <mach/camera.h>
 #include <mach/audio.h>
-#include <mach/pxa3xx_nand.h>
+#include <mach/i2c.h>
+#include <mach/ohci.h>
+#include <mach/uart.h>
+#include <mach/pxa27x_keypad.h>
+#include <mach/pxa3xx_dvfm.h>
+#include <mach/pmu.h>
 
 #include "devices.h"
 #include "generic.h"
@@ -78,7 +80,7 @@ static struct pxa2xx_udc_mach_info pxa_udc_info;
 
 void __init pxa_set_udc_info(struct pxa2xx_udc_mach_info *info)
 {
-	memcpy(&pxa_udc_info, info, sizeof *info);
+	pxa_register_device(&pxa27x_device_udc, info);
 }
 
 static struct resource pxa2xx_udc_resources[] = {
@@ -98,17 +100,6 @@ static u64 udc_dma_mask = ~(u32)0;
 
 struct platform_device pxa25x_device_udc = {
 	.name		= "pxa25x-udc",
-	.id		= -1,
-	.resource	= pxa2xx_udc_resources,
-	.num_resources	= ARRAY_SIZE(pxa2xx_udc_resources),
-	.dev		=  {
-		.platform_data	= &pxa_udc_info,
-		.dma_mask	= &udc_dma_mask,
-	}
-};
-
-struct platform_device pxa27x_device_udc = {
-	.name		= "pxa27x-udc",
 	.id		= -1,
 	.resource	= pxa2xx_udc_resources,
 	.num_resources	= ARRAY_SIZE(pxa2xx_udc_resources),
@@ -144,6 +135,18 @@ struct platform_device pxa_device_fb = {
 	.resource	= pxafb_resources,
 };
 
+struct platform_device pxa_device_v4l2ov2 = {
+	.name		= "pxa2xx-v4l2ov2",
+	.id		= -1,
+	.dev		= {
+		.dma_mask	= &fb_dma_mask,
+		.coherent_dma_mask = 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(pxafb_resources),
+	.resource	= pxafb_resources,
+};
+
+
 void __init set_pxa_fb_info(struct pxafb_mach_info *info)
 {
 	pxa_register_device(&pxa_device_fb, info);
@@ -173,6 +176,11 @@ struct platform_device pxa_device_ffuart= {
 	.num_resources	= ARRAY_SIZE(pxa_resource_ffuart),
 };
 
+void __init pxa_set_ffuart_info(struct pxa_uart_mach_info *info)
+{
+	pxa_register_device(&pxa_device_ffuart, info);
+}
+
 static struct resource pxa_resource_btuart[] = {
 	{
 		.start	= __PREG(BTUART),
@@ -191,6 +199,11 @@ struct platform_device pxa_device_btuart = {
 	.resource	= pxa_resource_btuart,
 	.num_resources	= ARRAY_SIZE(pxa_resource_btuart),
 };
+
+void __init pxa_set_btuart_info(struct pxa_uart_mach_info *info)
+{
+	pxa_register_device(&pxa_device_btuart, info);
+}
 
 static struct resource pxa_resource_stuart[] = {
 	{
@@ -211,6 +224,11 @@ struct platform_device pxa_device_stuart = {
 	.num_resources	= ARRAY_SIZE(pxa_resource_stuart),
 };
 
+void __init pxa_set_stuart_info(struct pxa_uart_mach_info *info)
+{
+	pxa_register_device(&pxa_device_stuart, info);
+}
+
 static struct resource pxa_resource_hwuart[] = {
 	{
 		.start	= __PREG(HWUART),
@@ -229,6 +247,11 @@ struct platform_device pxa_device_hwuart = {
 	.resource	= pxa_resource_hwuart,
 	.num_resources	= ARRAY_SIZE(pxa_resource_hwuart),
 };
+
+void __init pxa_set_hwuart_info(struct pxa_uart_mach_info *info)
+{
+	pxa_register_device(&pxa_device_hwuart, info);
+}
 
 static struct resource pxai2c_resources[] = {
 	{
@@ -249,15 +272,8 @@ struct platform_device pxa_device_i2c = {
 	.num_resources	= ARRAY_SIZE(pxai2c_resources),
 };
 
-static unsigned long pxa27x_i2c_mfp_cfg[] = {
-	GPIO117_I2C_SCL,
-	GPIO118_I2C_SDA,
-};
-
 void __init pxa_set_i2c_info(struct i2c_pxa_platform_data *info)
 {
-	if (cpu_is_pxa27x())
-		pxa2xx_mfp_config(ARRAY_AND_SIZE(pxa27x_i2c_mfp_cfg));
 	pxa_register_device(&pxa_device_i2c, info);
 }
 
@@ -493,6 +509,18 @@ static struct resource pxa27x_resource_keypad[] = {
 		.end	= IRQ_KEYPAD,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_CPU_PXA930
+	[2] = {
+		.start	= 0x42300000,
+		.end	= 0x4230000f,
+		.flags	= IORESOURCE_MEM,
+	},
+	[3] = {
+		.start	= IRQ_ENHROT,
+		.end	= IRQ_ENHROT,
+		.flags	= IORESOURCE_IRQ,
+	},
+#endif
 };
 
 struct platform_device pxa27x_device_keypad = {
@@ -506,6 +534,38 @@ void __init pxa_set_keypad_info(struct pxa27x_keypad_platform_data *info)
 {
 	pxa_register_device(&pxa27x_device_keypad, info);
 }
+
+static u64 pxa3xx_1wire_dma_mask = DMA_BIT_MASK(32);
+
+static struct ds1wm_platform_data pxa3xx_device_1wire_data = {
+	.bus_shift	= 2,
+	.active_high    = 1,
+};
+
+static struct resource pxa3xx_resource_1wire[] = {
+	[0] = {
+		.start	= 0x41b00000,
+		.end	= 0x41b0001f,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_1WIRE,
+		.end	= IRQ_1WIRE,
+		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
+	},
+};
+
+struct platform_device pxa3xx_device_1wire = {
+	.name		= "ds1wm",
+	.id		= -1,
+	.dev		= {
+		.dma_mask = &pxa3xx_1wire_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+		.platform_data = &pxa3xx_device_1wire_data,
+	},
+	.num_resources	= ARRAY_SIZE(pxa3xx_resource_1wire),
+	.resource	= pxa3xx_resource_1wire,
+};
 
 static u64 pxa27x_ohci_dma_mask = DMA_BIT_MASK(32);
 
@@ -536,6 +596,44 @@ struct platform_device pxa27x_device_ohci = {
 void __init pxa_set_ohci_info(struct pxaohci_platform_data *info)
 {
 	pxa_register_device(&pxa27x_device_ohci, info);
+}
+
+static u64 ehci_hcd_pxa_dmamask = 0xffffffffUL;
+
+static struct resource pxa_ehci_resources[] = {
+	[0] = {
+		.start= 0x55502100,
+		.end= 0x5550afff,
+		.flags= IORESOURCE_DMA,
+	},
+	[1] = {
+		.start= IRQ_U2O,
+		.end= IRQ_U2O,
+		.flags= IORESOURCE_IRQ,
+	},
+};
+
+static void ehci_hcd_pxa_device_release(struct device *dev)
+{
+	/* Keep this function empty. */
+}
+
+static struct platform_device pxa9xx_device_ehci = {
+	.name = "pxa9xx-ehci",
+	.id = -1,
+	.dev		= {
+		.dma_mask = &ehci_hcd_pxa_dmamask,
+		.coherent_dma_mask = 0xffffffff,
+		.release = ehci_hcd_pxa_device_release,
+	},
+
+	.num_resources = ARRAY_SIZE(pxa_ehci_resources),
+	.resource      = pxa_ehci_resources,
+};
+
+void __init pxa_set_ehci_info(struct pxaehci_platform_data *info)
+{
+	pxa_register_device(&pxa9xx_device_ehci, info);
 }
 
 static u64 pxa27x_ssp1_dma_mask = DMA_BIT_MASK(32);
@@ -832,48 +930,203 @@ void __init pxa3xx_set_mci3_info(struct pxamci_platform_data *info)
 	pxa_register_device(&pxa3xx_device_mci3, info);
 }
 
-static struct resource pxa3xx_resources_nand[] = {
+static struct resource pxa9xx_resources_mci3[] = {
 	[0] = {
-		.start	= 0x43100000,
-		.end	= 0x43100053,
+		.start	= 0x55000000,
+		.end	= 0x550fffff,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= IRQ_NAND,
-		.end	= IRQ_NAND,
+		.start	= IRQ_MMC3_PXA940,
+		.end	= IRQ_MMC3_PXA940,
 		.flags	= IORESOURCE_IRQ,
 	},
+};
+
+struct platform_device pxa9xx_device_mci3 = {
+	.name		= "pxa9xx-mci",
+	.id		= 0,
+	.dev		= {
+		.dma_mask = &pxamci_dmamask,
+		.coherent_dma_mask = 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(pxa9xx_resources_mci3),
+	.resource	= pxa9xx_resources_mci3,
+};
+
+void __init pxa9xx_set_mci3_info(struct pxamci_platform_data *info)
+{
+	pxa_register_device(&pxa9xx_device_mci3, info);
+}
+
+static struct resource pxa9xx_resources_mci4[] = {
+	[0] = {
+		.start	= 0x55100000,
+		.end	= 0x551fffff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_MMC4_PXA940,
+		.end	= IRQ_MMC4_PXA940,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device pxa9xx_device_mci4 = {
+	.name		= "pxa9xx-mci",
+	.id		= 1,
+	.dev		= {
+		.dma_mask = &pxamci_dmamask,
+		.coherent_dma_mask = 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(pxa9xx_resources_mci4),
+	.resource	= pxa9xx_resources_mci4,
+};
+
+void __init pxa9xx_set_mci4_info(struct pxamci_platform_data *info)
+{
+	pxa_register_device(&pxa9xx_device_mci4, info);
+}
+
+static struct resource pxa9xx_resources_mci5[] = {
+	[0] = {
+		.start	= 0x55200000,
+		.end	= 0x552fffff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= IRQ_MMC5_PXA940,
+		.end	= IRQ_MMC5_PXA940,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device pxa9xx_device_mci5 = {
+	.name		= "pxa9xx-mci",
+	.id		= 2,
+	.dev		= {
+		.dma_mask = &pxamci_dmamask,
+		.coherent_dma_mask = 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(pxa9xx_resources_mci5),
+	.resource	= pxa9xx_resources_mci5,
+};
+
+void __init pxa9xx_set_mci5_info(struct pxamci_platform_data *info)
+{
+	pxa_register_device(&pxa9xx_device_mci5, info);
+}
+
+struct platform_device pxa3xx_device_rtc = {
+	.name		= "pxa3xx-rtc",
+	.id		= -1,
+};
+
+static struct resource pxa3xx_m2d_resources[2] = {
+	[0] = {
+		.start = 0x54000000,
+		.end   = 0x540fffff,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = IRQ_GRPHICS,
+		.end   = IRQ_GRPHICS,
+		.flags = IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device pxa3xx_device_gcu = {
+	.name		= "m2d",
+	.id		= -1,
+	.resource       = pxa3xx_m2d_resources,
+	.num_resources  = ARRAY_SIZE(pxa3xx_m2d_resources),
+};
+
+struct platform_device pxa27x_device_udc = {
+	.name		= "pxa27x-udc",
+	.id		= -1,
+	.resource	= pxa2xx_udc_resources,
+	.num_resources	= ARRAY_SIZE(pxa2xx_udc_resources),
+	.dev		=  {
+		.platform_data	= &pxa_udc_info,
+		.dma_mask	= &udc_dma_mask,
+#ifdef CONFIG_PXA3xx
+		.coherent_dma_mask = 0xffffffff,
+#endif
+	}
+};
+
+static struct resource pxa3xx_resource_freq[] = {
+	[0] = {
+		.name   = "clkmgr_regs",
+		.start	= 0x41340000,
+		.end	= 0x41350003,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.name   = "spmu_regs",
+		.start	= 0x40f50000,
+		.end	= 0x40f50103,
+		.flags	= IORESOURCE_MEM,
+	},
 	[2] = {
-		/* DRCMR for Data DMA */
-		.start	= 97,
-		.end	= 97,
-		.flags	= IORESOURCE_DMA,
+		.name   = "bpmu_regs",
+		.start	= 0x40f40000,
+		.end	= 0x40f4003b,
+		.flags	= IORESOURCE_MEM,
 	},
 	[3] = {
-		/* DRCMR for Command DMA */
-		.start	= 99,
-		.end	= 99,
-		.flags	= IORESOURCE_DMA,
+		.name   = "dmc_regs",
+		.start	= 0x48100000,
+		.end	= 0x4810012f,
+		.flags	= IORESOURCE_MEM,
 	},
+	[4] = {
+		.name   = "smc_regs",
+		.start	= 0x4a000000,
+		.end	= 0x4a00008f,
+		.flags	= IORESOURCE_MEM,
+	}
 };
 
-static u64 pxa3xx_nand_dma_mask = DMA_BIT_MASK(32);
-
-struct platform_device pxa3xx_device_nand = {
-	.name		= "pxa3xx-nand",
-	.id		= -1,
-	.dev		= {
-		.dma_mask = &pxa3xx_nand_dma_mask,
-		.coherent_dma_mask = DMA_BIT_MASK(32),
-	},
-	.num_resources	= ARRAY_SIZE(pxa3xx_resources_nand),
-	.resource	= pxa3xx_resources_nand,
+struct platform_device pxa3xx_device_freq = {
+	.name		= "pxa3xx-freq",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(pxa3xx_resource_freq),
+	.resource	= pxa3xx_resource_freq,
 };
 
-void __init pxa3xx_set_nand_info(struct pxa3xx_nand_platform_data *info)
+void __init set_pxa3xx_freq_info(struct pxa3xx_freq_mach_info *info)
 {
-	pxa_register_device(&pxa3xx_device_nand, info);
+	pxa_register_device(&pxa3xx_device_freq, info);
 }
+
+void __init set_pxa3xx_freq_parent(struct device *parent_dev)
+{
+	pxa3xx_device_freq.dev.parent = parent_dev;
+}
+
+static struct resource pxa3xx_pmu_resources[] = {
+	[0] = {
+		.name   = "pmu_regs",
+		.start = 0x4600ff00,
+		.end   = 0x4600ffff,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device pxa3xx_device_pmu = {
+	.name		= "pxa3xx-pmu",
+	.id		= 0,
+	.resource       = pxa3xx_pmu_resources,
+	.num_resources  = ARRAY_SIZE(pxa3xx_pmu_resources),
+};
+
+void __init pxa3xx_set_pmu_info(void *info)
+{
+	pxa_register_device(&pxa3xx_device_pmu, info);
+}
+
 #endif /* CONFIG_PXA3xx */
 
 /* pxa2xx-spi platform-device ID equals respective SSP platform-device ID + 1.

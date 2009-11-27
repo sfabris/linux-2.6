@@ -11,6 +11,13 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
+config TOUCHSCREEN_MICCO_TIMER
+	tristate "optimize performane using timer"
+	depends on INPUT_EVDEV && PXA3xx_MICCO && TOUCHSCREEN_MICCO
+	default y
+	help
+	  Say Y here if you want to optimize micco touch performance
+
 config TOUCHSCREEN_ADS7846
 	tristate "ADS7846/TSC2046 and ADS7843 based touchscreens"
 	depends on SPI_MASTER
@@ -185,6 +192,12 @@ config TOUCHSCREEN_MIGOR
 	  To compile this driver as a module, choose M here: the
 	  module will be called migor_ts.
 
+config TOUCHSCREEN_SYNAPTICS_I2C_RMI
+	tristate "Synaptics i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics RMI over I2C based touchscreens.
+
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
 	select SERIO
@@ -274,6 +287,13 @@ config TOUCHSCREEN_WM9713
 	help
 	  Say Y here to enable support for the Wolfson Microelectronics
 	  WM9713 touchscreen controller.
+
+config TOUCHSCREEN_MICCO
+	tristate "MICCO based touchscreen"
+	depends on INPUT_EVDEV && PXA3xx_MICCO
+	default y
+	help
+	  Say Y here if you want to enable micco touch driver
 
 config TOUCHSCREEN_WM97XX_MAINSTONE
 	tristate "WM97xx Mainstone accelerated touch"

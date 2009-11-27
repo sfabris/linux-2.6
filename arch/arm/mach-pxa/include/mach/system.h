@@ -12,8 +12,8 @@
 
 #include <asm/proc-fns.h>
 #include "hardware.h"
-#include "pxa2xx-regs.h"
 #include "pxa-regs.h"
+#include "pxa3xx-regs.h"
 
 static inline void arch_idle(void)
 {

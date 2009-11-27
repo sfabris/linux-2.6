@@ -19,6 +19,7 @@
 #define SSRSA		(0x34)  /* SSP Rx Timeslot Active */
 #define SSTSS		(0x38)  /* SSP Timeslot Status */
 #define SSACD		(0x3C)  /* SSP Audio Clock Divider */
+#define SSACDD		(0x40)  /* SSP Audio Clock Dither Divider Register */
 
 #if defined(CONFIG_PXA3xx)
 #define SSACDD		(0x40)	/* SSP Audio Clock Dither Divider */
@@ -38,7 +39,7 @@
 #define SSCR0_SCR	(0x0000ff00)	/* Serial Clock Rate (mask) */
 #define SSCR0_SerClkDiv(x) ((((x) - 2)/2) << 8) /* Divisor [2..512] */
 
-#elif defined(CONFIG_PXA27x) || defined(CONFIG_PXA3xx)
+#elif defined(CONFIG_PXA27x)
 #define SSCR0_SCR	(0x000fff00)	/* Serial Clock Rate (mask) */
 #define SSCR0_SerClkDiv(x) (((x) - 1) << 8) /* Divisor [1..4096] */
 #define SSCR0_EDSS	(1 << 20)	/* Extended data size select */
@@ -49,6 +50,19 @@
 #define SSCR0_SlotsPerFrm(x) (((x) - 1) << 24)	/* Time slots per frame [1..8] */
 #define SSCR0_ADC	(1 << 30)	/* Audio clock select */
 #define SSCR0_MOD	(1 << 31)	/* Mode (normal or network) */
+#elif defined(CONFIG_PXA3xx)
+#define SSCR0_SCR	(0x000fff00)	/* Serial Clock Rate (mask) */
+#define SSCR0_SerClkDiv(x) (((x) - 1) << 8)	/* Divisor [1..4096] */
+#define SSCR0_EDSS	(1 << 20)	/* Extended data size select */
+#define SSCR0_NCS	(1 << 21)	/* Network clock select */
+#define SSCR0_RIM	(1 << 22)	/* Receive FIFO overrrun interrupt mask */
+#define SSCR0_TUM	(1 << 23)	/* Transmit FIFO underrun interrupt mask */
+#define SSCR0_FRDC	(0x07000000)	/* Frame rate divider control (mask) */
+#define SSCR0_SlotsPerFrm(x) ((x) - 1)	/* Time slots per frame [1..8] */
+#define SSCR0_FPCKE	(1 << 29)
+#define SSCR0_ACS	(1 << 30)	/* Audio clock select */
+#define SSCR0_MOD	(1 << 31)	/* Mode (normal or network) */
+
 #endif
 
 #if defined(CONFIG_PXA3xx)
@@ -117,6 +131,7 @@
 #define SSPSP_SCMODE(x)		((x) << 0)	/* Serial Bit Rate Clock Mode */
 
 #define SSACD_SCDB		(1 << 3)	/* SSPSYSCLK Divider Bypass */
+#define SSACD_SCDX8		(1 << 7)	/* SSPSYSCLK Divide by 8 */
 #define SSACD_ACPS(x)		((x) << 4)	/* Audio clock PLL select */
 #define SSACD_ACDS(x)		((x) << 0)	/* Audio clock divider select */
 #if defined(CONFIG_PXA3xx)

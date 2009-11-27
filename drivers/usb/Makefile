@@ -4,6 +4,8 @@
 
 # Object files in subdirectories
 
+obj-$(CONFIG_USB_OTG)		+= otg/
+obj-$(CONFIG_USB_PXA3XX_U2D)	+= otg/
 obj-$(CONFIG_USB)		+= core/
 
 obj-$(CONFIG_USB_MON)		+= mon/

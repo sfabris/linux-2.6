@@ -96,6 +96,13 @@ config USB_EHCI_HCD_PPC_OF
 	  Enables support for the USB controller present on the PowerPC
 	  OpenFirmware platform bus.
 
+config USB_EHCI_PXA9XX
+	bool "Support for PXA9xx on-chip EHCI USB controller"
+	depends on USB_EHCI_HCD && USB_GADGET_PXA9XX_U2O && USB_OTG
+	default n
+	---help---
+	  Variation of USB block used in some Marvell chips.
+
 config USB_ISP116X_HCD
 	tristate "ISP116X HCD support"
 	depends on USB

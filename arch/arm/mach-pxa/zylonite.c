@@ -32,9 +32,14 @@
 #include <mach/ohci.h>
 #include <mach/pxa27x_keypad.h>
 #include <mach/pxa3xx_nand.h>
+#include <mach/ohci.h>
+#include <mach/uart.h>
+#include <mach/pxa3xx_dvfm.h>
+#include <mach/pmu.h>
 
 #include "devices.h"
 #include "generic.h"
+#include "devices.h"
 
 #define MAX_SLOTS	3
 struct platform_mmc_slot zylonite_mmc_slot[MAX_SLOTS];
@@ -44,6 +49,7 @@ int gpio_debug_led1;
 int gpio_debug_led2;
 
 int wm9713_irq;
+int gpio_touch_irq;
 
 int lcd_id;
 int lcd_orientation;
@@ -158,7 +164,8 @@ static struct pxafb_mode_info toshiba_ltm04c380k_mode = {
 
 static struct pxafb_mach_info zylonite_toshiba_lcd_info = {
 	.num_modes      	= 1,
-	.lcd_conn		= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
+	.lccr0			= LCCR0_Act,
+	.lccr3			= LCCR3_PCP,
 };
 
 static struct pxafb_mode_info sharp_ls037_modes[] = {
@@ -190,10 +197,13 @@ static struct pxafb_mode_info sharp_ls037_modes[] = {
 	},
 };
 
+void (*zylonite_lcd_power)(int, struct fb_var_screeninfo *);
 static struct pxafb_mach_info zylonite_sharp_lcd_info = {
 	.modes			= sharp_ls037_modes,
 	.num_modes		= 2,
-	.lcd_conn		= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
+	.fixed_modes	= 1,
+	.lccr0			= LCCR0_Act,
+	.lccr3			= LCCR3_PCP,
 };
 
 static void __init zylonite_init_lcd(void)
@@ -201,6 +211,7 @@ static void __init zylonite_init_lcd(void)
 	platform_device_register(&zylonite_backlight_device);
 
 	if (lcd_id & 0x20) {
+		zylonite_sharp_lcd_info.pxafb_lcd_power = zylonite_lcd_power;
 		set_pxa_fb_info(&zylonite_sharp_lcd_info);
 		return;
 	}
@@ -208,6 +219,7 @@ static void __init zylonite_init_lcd(void)
 	/* legacy LCD panels, it would be handy here if LCD panel type can
 	 * be decided at run-time
 	 */
+	zylonite_toshiba_lcd_info.pxafb_lcd_power = zylonite_lcd_power;
 	if (1)
 		zylonite_toshiba_lcd_info.modes = &toshiba_ltm035a776c_mode;
 	else
@@ -219,7 +231,7 @@ static void __init zylonite_init_lcd(void)
 static inline void zylonite_init_lcd(void) {}
 #endif
 
-#if defined(CONFIG_MMC)
+#if defined(CONFIG_MMC) || defined(CONFIG_MMC_MODULE)
 static int zylonite_mci_ro(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -308,6 +320,21 @@ static void __init zylonite_init_mmc(void)
 static inline void zylonite_init_mmc(void) {}
 #endif
 
+static struct resource wm9713_touch_resources[] = {
+	[0] = {
+		.start	= -1,	/* for run-time assignment */
+		.end	= -1,
+		.flags	= IORESOURCE_IRQ,
+	}
+};
+
+static struct platform_device wm9713_touch_device = {
+	.name		= "wm9713-touch",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(wm9713_touch_resources),
+	.resource	= wm9713_touch_resources,
+};
+
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int zylonite_matrix_key_map[] = {
 	/* KEY(row, col, key_code) */
@@ -373,57 +400,6 @@ static void __init zylonite_init_keypad(void)
 static inline void zylonite_init_keypad(void) {}
 #endif
 
-#if defined(CONFIG_MTD_NAND_PXA3xx) || defined(CONFIG_MTD_NAND_PXA3xx_MODULE)
-static struct mtd_partition zylonite_nand_partitions[] = {
-	[0] = {
-		.name        = "Bootloader",
-		.offset      = 0,
-		.size        = 0x060000,
-		.mask_flags  = MTD_WRITEABLE, /* force read-only */
-	},
-	[1] = {
-		.name        = "Kernel",
-		.offset      = 0x060000,
-		.size        = 0x200000,
-		.mask_flags  = MTD_WRITEABLE, /* force read-only */
-	},
-	[2] = {
-		.name        = "Filesystem",
-		.offset      = 0x0260000,
-		.size        = 0x3000000,     /* 48M - rootfs */
-	},
-	[3] = {
-		.name        = "MassStorage",
-		.offset      = 0x3260000,
-		.size        = 0x3d40000,
-	},
-	[4] = {
-		.name        = "BBT",
-		.offset      = 0x6FA0000,
-		.size        = 0x80000,
-		.mask_flags  = MTD_WRITEABLE,  /* force read-only */
-	},
-	/* NOTE: we reserve some blocks at the end of the NAND flash for
-	 * bad block management, and the max number of relocation blocks
-	 * differs on different platforms. Please take care with it when
-	 * defining the partition table.
-	 */
-};
-
-static struct pxa3xx_nand_platform_data zylonite_nand_info = {
-	.enable_arbiter	= 1,
-	.parts		= zylonite_nand_partitions,
-	.nr_parts	= ARRAY_SIZE(zylonite_nand_partitions),
-};
-
-static void __init zylonite_init_nand(void)
-{
-	pxa3xx_set_nand_info(&zylonite_nand_info);
-}
-#else
-static inline void zylonite_init_nand(void) {}
-#endif /* CONFIG_MTD_NAND_PXA3xx || CONFIG_MTD_NAND_PXA3xx_MODULE */
-
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data zylonite_ohci_info = {
 	.port_mode	= PMM_PERPORT_MODE,
@@ -439,11 +415,26 @@ static void __init zylonite_init_ohci(void)
 static inline void zylonite_init_ohci(void) {}
 #endif /* CONFIG_USB_OHCI_HCD || CONFIG_USB_OHCI_HCD_MODULE */
 
+struct pxa3xx_freq_mach_info zylonite_freq_mach_info = {
+	.flags = 0,
+};
+
 static void __init zylonite_init(void)
 {
+	/* dvfm device */
+	set_pxa3xx_freq_info(&zylonite_freq_mach_info);
+
+	/* performance monitor unit */
+	pxa3xx_set_pmu_info(NULL);
+
 	/* board-processor specific initialization */
 	zylonite_pxa300_init();
 	zylonite_pxa320_init();
+
+	/* uart */
+	pxa_set_ffuart_info(NULL);
+	pxa_set_btuart_info(NULL);
+	pxa_set_stuart_info(NULL);
 
 	/*
 	 * Note: We depend that the bootloader set
@@ -454,10 +445,14 @@ static void __init zylonite_init(void)
 	platform_device_register(&smc91x_device);
 
 	pxa_set_ac97_info(NULL);
+	wm9713_touch_resources[0].start = gpio_to_irq(gpio_touch_irq);
+	wm9713_touch_resources[0].end   = gpio_to_irq(gpio_touch_irq);
+	platform_device_register(&wm9713_touch_device);
+
 	zylonite_init_lcd();
+	zylonite_init_ohci();
 	zylonite_init_mmc();
 	zylonite_init_keypad();
-	zylonite_init_nand();
 	zylonite_init_leds();
 	zylonite_init_ohci();
 }

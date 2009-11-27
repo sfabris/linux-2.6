@@ -5,7 +5,18 @@
 # Common support (must be linked before board specific support)
 obj-y				+= clock.o devices.o generic.o irq.o dma.o \
 				   time.o gpio.o reset.o
-obj-$(CONFIG_PM)		+= pm.o sleep.o standby.o
+obj-$(CONFIG_PXA_DVFM)		+= dvfm.o
+ifeq ($(CONFIG_PXA3xx), y)
+  obj-$(CONFIG_PXA3xx_PMIC)	+= pxa3xx_pmic.o
+  obj-$(CONFIG_PXA3xx_DVFM)	+= pxa3xx_dvfm.o pxa3xx_dvfm_ll.o
+  obj-$(CONFIG_PXA3xx_DVFM_STATS) += dvfm_stats.o
+  obj-$(CONFIG_PXA3xx_PMU)	+= pmu.o pmu_ll.o
+  obj-$(CONFIG_PXA3xx_PRM)	+= prm.o
+  obj-$(CONFIG_PM)		+= pxa3xx_pm.o pxa3xx_pm_ll.o sleepwkr.o
+  obj-$(CONFIG_IPM)		+= ipmc.o ipm-pmu.o mspm_idle.o mspm_prof.o
+else
+  obj-$(CONFIG_PM)		+= pm.o sleep.o standby.o
+endif
 
 ifeq ($(CONFIG_CPU_FREQ),y)
 obj-$(CONFIG_PXA25x)		+= cpufreq-pxa2xx.o
@@ -20,7 +31,7 @@ obj-$(CONFIG_PXA_PWM)		+= pwm.o
 # SoC-specific code
 obj-$(CONFIG_PXA25x)		+= mfp-pxa2xx.o pxa2xx.o pxa25x.o
 obj-$(CONFIG_PXA27x)		+= mfp-pxa2xx.o pxa2xx.o pxa27x.o
-obj-$(CONFIG_PXA3xx)		+= mfp-pxa3xx.o pxa3xx.o smemc.o
+obj-$(CONFIG_PXA3xx)		+= mfp-pxa3xx.o pxa3xx.o
 obj-$(CONFIG_CPU_PXA300)	+= pxa300.o
 obj-$(CONFIG_CPU_PXA320)	+= pxa320.o
 obj-$(CONFIG_CPU_PXA930)	+= pxa930.o
@@ -76,6 +87,7 @@ led-$(CONFIG_MACH_MAINSTONE)	+= leds-mainstone.o
 led-$(CONFIG_ARCH_PXA_IDP)	+= leds-idp.o
 
 obj-$(CONFIG_LEDS)		+= $(led-y)
+obj-$(CONFIG_IMM)		+= imm/
 
 ifeq ($(CONFIG_PCI),y)
 obj-$(CONFIG_MACH_ARMCORE) += cm-x2xx-pci.o

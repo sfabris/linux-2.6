@@ -19,6 +19,12 @@
 #include "u_serial.h"
 #include "gadget_chips.h"
 
+#ifdef CONFIG_USB_COMPOSITE
+/* for serial driver be recognized by PROTOCOL, since CLASS/SUBCLASS are
+ * all the same with other CDC data interfaces within CDC gadget drivers,
+ * e.g. CDC Ethernet */
+#define GS_PROTOCOL_VENDOR_SPEC	0xff
+#endif
 
 /* Defines */
 

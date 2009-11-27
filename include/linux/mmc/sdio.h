@@ -127,6 +127,7 @@
 
 #define  SDIO_SPEED_SHS		0x01	/* Supports High-Speed mode */
 #define  SDIO_SPEED_EHS		0x02	/* Enable High-Speed mode */
+#define  MAX_SDIO_FULL_SPEED	25000000	/* Enable High-Speed mode */
 
 /*
  * Function Basic Registers (FBR)

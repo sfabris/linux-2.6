@@ -607,6 +607,12 @@ config VIDEO_STRADIS
 
 source "drivers/media/video/zoran/Kconfig"
 
+config VIDEO_PXAV4L2_OVERLAY2
+        tristate "V4L2 based PXA Overlay2"
+        depends on VIDEO_V4L2
+        help
+          V4L2 Based overlay2 driver for PXA
+
 config VIDEO_MEYE
 	tristate "Sony Vaio Picturebook Motion Eye Video For Linux"
 	depends on PCI && SONY_LAPTOP && VIDEO_V4L1
@@ -892,5 +898,9 @@ config USB_S2255
 	  This driver can be compiled as a module, called s2255drv.
 
 endif # V4L_USB_DRIVERS
+
+config PXA_CAMERA
+        bool "Camera Interface for PXA3xx Processor"        
+	depends on VIDEO_DEV && I2C
 
 endif # VIDEO_CAPTURE_DRIVERS

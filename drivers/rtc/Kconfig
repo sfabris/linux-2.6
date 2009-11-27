@@ -105,6 +105,16 @@ config RTC_INTF_DEV_UIE_EMUL
 	  driver does not expose RTC_UIE ioctls.  Those requests generate
 	  once-per-second update interrupts, used for synchronization.
 
+config RTC_INTF_ALARM
+	bool "Android alarm driver"
+	depends on RTC_CLASS
+	default y
+	help
+	  Provides non-wakeup and rtc backed wakeup alarms based on rtc or
+	  elapsed realtime, and a non-wakeup alarm on the monotonic clock.
+	  Also provides an ioctl to set the wall time which must be used
+	  for elapsed realtime to work.
+
 config RTC_DRV_TEST
 	tristate "Test driver/device"
 	help
@@ -541,6 +551,21 @@ config RTC_DRV_SA1100
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called rtc-sa1100.
+
+config RTC_DRV_PXA3XX
+	tristate "PXA3xx"
+	depends on ARCH_PXA || PXA3xx
+	help
+	  If you say Y here you will get access to the real time clock
+	  built into your PXA3xx CPU.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called rtc-pxa3xx.
+
+config PXA_RTC_WRISTWATCH
+	bool "Use Wristwatch as RTC timer"
+	depends on RTC_DRV_PXA3XX
+	default n
 
 config RTC_DRV_SH
 	tristate "SuperH On-Chip RTC"

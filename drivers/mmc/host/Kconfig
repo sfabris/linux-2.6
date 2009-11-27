@@ -24,6 +24,16 @@ config MMC_PXA
 
 	  If unsure, say N.
 
+config MMC_PXA9XX
+	tristate "Marvell PXA9xx Multimedia Card Interface support"
+	depends on ARCH_PXA
+	help
+	  This selects the Marvell(R) PXA(R) Multimedia card Interface.
+	  If you have a PXA9xx platform with a Multimedia Card slot,
+	  say Y or M here.
+
+	  If unsure, say N.
+
 config MMC_SDHCI
 	tristate "Secure Digital Host Controller Interface support"
 	depends on HAS_DMA
@@ -192,3 +202,21 @@ config MMC_TMIO
 	help
 	  This provides support for the SD/MMC cell found in TC6393XB,
 	  T7L66XB and also ipaq ASIC3
+config MMC2
+	bool "Support MMC2 controller"
+	default n
+	depends on MMC_PXA
+	help
+	  This selects the PXA3xx Platform Development Kit (Zylonite)
+          Multimedia Controller 2.If you want to use controller 2,
+	  say Y here.
+
+config MMC3
+	bool "Support MMC3 controller"
+	default n
+	depends on MMC_PXA && CPU_PXA310
+	help
+	  This selects the PXA310 Platform Development Kit (Zylonite)
+          Multimedia Controller 3.If you want to use controller 3,
+	  say Y here.
+

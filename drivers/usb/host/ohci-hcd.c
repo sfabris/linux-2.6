@@ -750,6 +750,7 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd)
 	struct ohci_hcd		*ohci = hcd_to_ohci (hcd);
 	struct ohci_regs __iomem *regs = ohci->regs;
 	int			ints;
+	int i, temp, connected;
 
 	/* Read interrupt status (and flush pending writes).  We ignore the
 	 * optimization of checking the LSB of hcca->done_head; it doesn't
@@ -799,6 +800,26 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd)
 		ohci_writel(ohci, OHCI_INTR_RD | OHCI_INTR_RHSC,
 				&regs->intrstatus);
 
+#ifdef CONFIG_USB_OTG
+		connected = -1;
+		for (i = 0; i < 3; i++) {
+			temp = ohci_readl(ohci,
+					  &ohci->regs->roothub.portstatus[i]);
+			if (temp & RH_PS_CCS) {
+				connected = 1;
+				break;
+			} else if (!(temp & RH_PS_CCS) && (temp & RH_PS_CSC)) {
+				connected = 0;
+				break;
+			}
+
+		}
+		if (connected == 1)
+			hcd->driver->connect(hcd, NULL);
+		else if (connected == 0)
+			hcd->driver->disconnect(hcd);
+#endif
+
 		/* NOTE: Vendors didn't always make the same implementation
 		 * choices for RHSC.  Many followed the spec; RHSC triggers
 		 * on an edge, like setting and maybe clearing a port status
@@ -807,7 +828,7 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd)
 		 * always disable it here and rely on polling until khubd
 		 * re-enables it.
 		 */
-		ohci_writel(ohci, OHCI_INTR_RHSC, &regs->intrdisable);
+		/* ohci_writel(ohci, OHCI_INTR_RHSC, &regs->intrdisable); */
 		usb_hcd_poll_rh_status(hcd);
 	}
 

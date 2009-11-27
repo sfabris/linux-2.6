@@ -16,7 +16,7 @@ obj-$(CONFIG_SMC_IRCC_FIR)	+= smsc-ircc2.o
 obj-$(CONFIG_ALI_FIR)		+= ali-ircc.o
 obj-$(CONFIG_VLSI_FIR)		+= vlsi_ir.o
 obj-$(CONFIG_VIA_FIR)		+= via-ircc.o
-obj-$(CONFIG_PXA_FICP)	        += pxaficp_ir.o
+obj-$(CONFIG_PXA_IRDA)	        += pxaficp_ir.o
 obj-$(CONFIG_MCS_FIR)	        += mcs7780.o
 obj-$(CONFIG_AU1000_FIR)	+= au1k_ir.o
 # SIR drivers

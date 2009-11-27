@@ -85,7 +85,6 @@
 #define	gadget_is_n9604(g)	0
 #endif
 
-/* various unstable versions available */
 #ifdef CONFIG_USB_GADGET_PXA27X
 #define	gadget_is_pxa27x(g)	!strcmp("pxa27x_udc", (g)->name)
 #else
@@ -158,6 +157,17 @@
 #define gadget_is_fsl_qe(g)	0
 #endif
 
+#ifdef CONFIG_USB_GADGET_PXA3XX_U2D
+#define	gadget_is_pxa3xx_u2d(g)	!strcmp("pxa3xx_u2d", (g)->name)
+#else
+#define	gadget_is_pxa3xx_u2d(g)	0
+#endif
+
+#ifdef CONFIG_USB_GADGET_PXA9XX_U2O
+#define	gadget_is_pxa9xx_u2o(g)	!strcmp("pxa9xx-u2o", (g)->name)
+#else
+#define	gadget_is_pxa9xx_u2o(g)	0
+#endif
 
 // CONFIG_USB_GADGET_SX2
 // CONFIG_USB_GADGET_AU1X00
@@ -225,6 +235,10 @@ static inline int usb_gadget_controller_number(struct usb_gadget *gadget)
 		return 0x21;
 	else if (gadget_is_fsl_qe(gadget))
 		return 0x22;
+	else if (gadget_is_pxa3xx_u2d(gadget))
+		return 0x23;
+	else if (gadget_is_pxa9xx_u2o(gadget))
+		return 0x24;
 	return -ENOENT;
 }
 

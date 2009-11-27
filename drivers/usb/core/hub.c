@@ -688,8 +688,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 		 * Unconnected ports should likewise be disabled (paranoia),
 		 * and so should ports for which we have no usb_device.
 		 */
-		if ((portstatus & USB_PORT_STAT_ENABLE) && (
-				type != HUB_RESUME ||
+		if ((portstatus & USB_PORT_STAT_ENABLE) &&
+				(type != HUB_RESUME) && (
 				!(portstatus & USB_PORT_STAT_CONNECTION) ||
 				!udev ||
 				udev->state == USB_STATE_NOTATTACHED)) {

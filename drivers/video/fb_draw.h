@@ -61,6 +61,10 @@ pixel_to_pat( u32 bpp, u32 pixel)
 		return 0x00001001ul*pixel;
 	case 16:
 		return 0x00010001ul*pixel;
+	case 18:
+		return 0x00040001ul*pixel;
+	case 19:
+		return 0x00040001ul*pixel;
 	case 24:
 		return 0x00000001ul*pixel;
 	case 32:

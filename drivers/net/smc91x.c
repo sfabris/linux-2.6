@@ -81,6 +81,7 @@ static const char version[] =
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/workqueue.h>
+#include <linux/clk.h>
 
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
@@ -127,7 +128,8 @@ MODULE_PARM_DESC(nowait, "set to 1 for no wait state");
 /*
  * Transmit timeout, default 5 seconds.
  */
-static int watchdog = 1000;
+/*static int watchdog = 1000;*/
+static int watchdog = 10000;
 module_param(watchdog, int, 0400);
 MODULE_PARM_DESC(watchdog, "transmit timeout in milliseconds");
 
@@ -173,6 +175,20 @@ MODULE_ALIAS("platform:smc91x");
  * in microseconds. (was 50, but this gives 6.4ms for each MII transaction!)
  */
 #define MII_DELAY		1
+
+#ifdef CONFIG_PXA3xx
+static struct clk *pxa3xx_smc_clk = NULL;
+static void switch_clk(int enable)
+{
+	if (enable) {
+		clk_enable(pxa3xx_smc_clk);
+	} else {
+		clk_disable(pxa3xx_smc_clk);
+	}
+}
+#else
+static inline void switch_clk(int enable) {}
+#endif
 
 #if SMC_DEBUG > 0
 #define DBG(n, args...)					\
@@ -272,6 +288,7 @@ static void smc_reset(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	/* Disable all interrupts, block TX tasklet */
 	spin_lock_irq(&lp->lock);
 	SMC_SELECT_BANK(lp, 2);
@@ -352,6 +369,7 @@ static void smc_reset(struct net_device *dev)
 	SMC_SELECT_BANK(lp, 2);
 	SMC_SET_MMU_CMD(lp, MC_RESET);
 	SMC_WAIT_MMU_BUSY(lp);
+	switch_clk(0);
 }
 
 /*
@@ -365,6 +383,7 @@ static void smc_enable(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	/* see the header file for options in TCR/RCR DEFAULT */
 	SMC_SELECT_BANK(lp, 0);
 	SMC_SET_TCR(lp, lp->tcr_cur_mode);
@@ -386,6 +405,7 @@ static void smc_enable(struct net_device *dev)
 	 * races with any tasklet or interrupt handlers until smc_shutdown()
 	 * or smc_reset() is called.
 	 */
+	switch_clk(0);
 }
 
 /*
@@ -399,6 +419,7 @@ static void smc_shutdown(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", CARDNAME, __func__);
 
+	switch_clk(1);
 	/* no more interrupts for me */
 	spin_lock_irq(&lp->lock);
 	SMC_SELECT_BANK(lp, 2);
@@ -419,6 +440,7 @@ static void smc_shutdown(struct net_device *dev)
 	SMC_SELECT_BANK(lp, 1);
 	SMC_SET_CONFIG(lp, SMC_GET_CONFIG(lp) & ~CONFIG_EPH_POWER_EN);
 #endif
+	switch_clk(0);
 }
 
 /*
@@ -432,6 +454,7 @@ static inline void  smc_rcv(struct net_device *dev)
 
 	DBG(3, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	packet_number = SMC_GET_RXFIFO(lp);
 	if (unlikely(packet_number & RXFIFO_REMPTY)) {
 		PRINTK("%s: smc_rcv with nothing on FIFO.\n", dev->name);
@@ -524,6 +547,7 @@ static inline void  smc_rcv(struct net_device *dev)
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += data_len;
 	}
+	switch_clk(0);
 }
 
 #ifdef CONFIG_SMP
@@ -579,15 +603,18 @@ static void smc_hardware_send_pkt(unsigned long data)
 
 	DBG(3, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	if (!smc_special_trylock(&lp->lock)) {
 		netif_stop_queue(dev);
 		tasklet_schedule(&lp->tx_task);
+		switch_clk(0);
 		return;
 	}
 
 	skb = lp->pending_tx_skb;
 	if (unlikely(!skb)) {
 		smc_special_unlock(&lp->lock);
+		switch_clk(0);
 		return;
 	}
 	lp->pending_tx_skb = NULL;
@@ -648,6 +675,7 @@ done:	if (!THROTTLE_TX_PKTS)
 		netif_wake_queue(dev);
 
 	dev_kfree_skb(skb);
+	switch_clk(0);
 }
 
 /*
@@ -666,6 +694,7 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	BUG_ON(lp->pending_tx_skb != NULL);
 
+	switch_clk(1);
 	/*
 	 * The MMU wants the number of pages to be the number of 256 bytes
 	 * 'pages', minus 1 (since a packet can't ever have 0 pages :))
@@ -683,6 +712,7 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_errors++;
 		dev->stats.tx_dropped++;
 		dev_kfree_skb(skb);
+		switch_clk(0);
 		return 0;
 	}
 
@@ -720,6 +750,7 @@ static int smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		smc_hardware_send_pkt((unsigned long)dev);
 	}
 
+	switch_clk(0);
 	return 0;
 }
 
@@ -736,10 +767,12 @@ static void smc_tx(struct net_device *dev)
 
 	DBG(3, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	/* If the TX FIFO is empty then nothing to do */
 	packet_no = SMC_GET_TXFIFO(lp);
 	if (unlikely(packet_no & TXFIFO_TEMPTY)) {
 		PRINTK("%s: smc_tx with nothing on FIFO.\n", dev->name);
+		switch_clk(0);
 		return;
 	}
 
@@ -783,6 +816,7 @@ static void smc_tx(struct net_device *dev)
 	SMC_SELECT_BANK(lp, 0);
 	SMC_SET_TCR(lp, lp->tcr_cur_mode);
 	SMC_SELECT_BANK(lp, 2);
+	switch_clk(0);
 }
 
 
@@ -1238,6 +1272,7 @@ static irqreturn_t smc_interrupt(int irq, void *dev_id)
 
 	DBG(3, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	spin_lock(&lp->lock);
 
 	/* A preamble may be used when there is a potential race
@@ -1327,6 +1362,7 @@ static irqreturn_t smc_interrupt(int irq, void *dev_id)
 	DBG(3, "%s: Interrupt done (%d loops)\n",
 	       dev->name, MAX_IRQ_LOOPS - timeout);
 
+	switch_clk(0);
 	/*
 	 * We return IRQ_HANDLED unconditionally here even if there was
 	 * nothing to do.  There is a possibility that a packet might
@@ -1360,6 +1396,7 @@ static void smc_timeout(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	spin_lock_irq(&lp->lock);
 	status = SMC_GET_INT(lp);
 	mask = SMC_GET_INT_MASK(lp);
@@ -1387,6 +1424,7 @@ static void smc_timeout(struct net_device *dev)
 	/* We can accept TX packets again */
 	dev->trans_start = jiffies;
 	netif_wake_queue(dev);
+	switch_clk(0);
 }
 
 /*
@@ -1404,6 +1442,7 @@ static void smc_set_multicast_list(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	if (dev->flags & IFF_PROMISC) {
 		DBG(2, "%s: RCR_PRMS\n", dev->name);
 		lp->rcr_cur_mode |= RCR_PRMS;
@@ -1492,6 +1531,7 @@ static void smc_set_multicast_list(struct net_device *dev)
 	}
 	SMC_SELECT_BANK(lp, 2);
 	spin_unlock_irq(&lp->lock);
+	switch_clk(0);
 }
 
 
@@ -1531,6 +1571,7 @@ smc_open(struct net_device *dev)
 	if (lp->phy_type == 0)
 		lp->tcr_cur_mode |= TCR_MON_CSN;
 
+	switch_clk(1);
 	/* reset the hardware */
 	smc_reset(dev);
 	smc_enable(dev);
@@ -1545,6 +1586,7 @@ smc_open(struct net_device *dev)
 	}
 
 	netif_start_queue(dev);
+	switch_clk(0);
 	return 0;
 }
 
@@ -1561,6 +1603,7 @@ static int smc_close(struct net_device *dev)
 
 	DBG(2, "%s: %s\n", dev->name, __func__);
 
+	switch_clk(1);
 	netif_stop_queue(dev);
 	netif_carrier_off(dev);
 
@@ -1568,6 +1611,7 @@ static int smc_close(struct net_device *dev)
 	smc_shutdown(dev);
 	tasklet_kill(&lp->tx_task);
 	smc_phy_powerdown(dev);
+	switch_clk(0);
 	return 0;
 }
 
@@ -2167,6 +2211,11 @@ static int __devinit smc_drv_probe(struct platform_device *pdev)
 
 	ndev->dma = (unsigned char)-1;
 
+#ifdef CONFIG_PXA3xx
+	pxa3xx_smc_clk = clk_get(NULL, "SMCCLK");
+#endif
+	switch_clk(1);
+
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "smc91x-regs");
 	if (!res)
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -2222,6 +2271,7 @@ static int __devinit smc_drv_probe(struct platform_device *pdev)
 		goto out_iounmap;
 
 	smc_request_datacs(pdev, ndev);
+	switch_clk(0);
 
 	return 0;
 
@@ -2235,6 +2285,7 @@ static int __devinit smc_drv_probe(struct platform_device *pdev)
  out_free_netdev:
 	free_netdev(ndev);
  out:
+	switch_clk(0);
 	printk("%s: not found (%d).\n", CARDNAME, ret);
 
 	return ret;
@@ -2277,9 +2328,11 @@ static int smc_drv_suspend(struct platform_device *dev, pm_message_t state)
 
 	if (ndev) {
 		if (netif_running(ndev)) {
+			switch_clk(1);
 			netif_device_detach(ndev);
 			smc_shutdown(ndev);
 			smc_phy_powerdown(ndev);
+			switch_clk(0);
 		}
 	}
 	return 0;
@@ -2291,6 +2344,7 @@ static int smc_drv_resume(struct platform_device *dev)
 
 	if (ndev) {
 		struct smc_local *lp = netdev_priv(ndev);
+		switch_clk(1);
 		smc_enable_device(dev);
 		if (netif_running(ndev)) {
 			smc_reset(ndev);
@@ -2299,6 +2353,7 @@ static int smc_drv_resume(struct platform_device *dev)
 				smc_phy_configure(&lp->phy_configure);
 			netif_device_attach(ndev);
 		}
+		switch_clk(0);
 	}
 	return 0;
 }

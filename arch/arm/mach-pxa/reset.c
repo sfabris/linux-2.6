@@ -11,6 +11,7 @@
 #include <asm/proc-fns.h>
 
 #include <mach/pxa-regs.h>
+#include <mach/pxa3xx-regs.h>
 #include <mach/reset.h>
 
 unsigned int reset_status;
@@ -75,10 +76,24 @@ static void do_gpio_reset(void)
 
 static void do_hw_reset(void)
 {
-	/* Initialize the watchdog and let it fire */
-	OWER = OWER_WME;
-	OSSR = OSSR_M3;
-	OSMR3 = OSCR + 368640;	/* ... in 100 ms */
+	if (cpu_is_pxa3xx()) {
+		if (cpu_is_pxa310()) {
+			/* Initialize the watchdog and let it fire */
+			OWER = OWER_WME;
+			OSSR = OSSR_M3;
+			OSMR3 = OSCR + 368640;	/* ... in 100 ms */
+		} else {
+			/* GPIO reset */
+			PSPR = 0x5c014000;
+			PMCR = (PMCR & (PMCR_BIE | PMCR_TIE | PMCR_VIE))
+				| PMCR_SWGR;
+		}
+	} else {
+		/* Initialize the watchdog and let it fire */
+		OWER = OWER_WME;
+		OSSR = OSSR_M3;
+		OSMR3 = OSCR + 368640;	/* ... in 100 ms */
+	}
 }
 
 void arch_reset(char mode)

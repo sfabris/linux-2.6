@@ -39,7 +39,8 @@ static int adjust_pte(struct vm_area_struct *vma, unsigned long address)
 	pgd_t *pgd;
 	pmd_t *pmd;
 	pte_t *pte, entry;
-	int ret;
+	unsigned long addr = address & PAGE_MASK;
+	int ret = 0;
 
 	pgd = pgd_offset(vma->vm_mm, address);
 	if (pgd_none(*pgd))
@@ -56,6 +57,8 @@ static int adjust_pte(struct vm_area_struct *vma, unsigned long address)
 	pte = pte_offset_map(pmd, address);
 	entry = *pte;
 
+	ret = pte_present(entry);
+
 	/*
 	 * If this page is present, it's actually being shared.
 	 */
@@ -65,7 +68,7 @@ static int adjust_pte(struct vm_area_struct *vma, unsigned long address)
 	 * If this page isn't present, or is already setup to
 	 * fault (ie, is old), we can safely ignore any issues.
 	 */
-	if (ret && (pte_val(entry) & L_PTE_MT_MASK) != shared_pte_mask) {
+	if (ret && pte_val(entry) & shared_pte_mask) {
 		flush_cache_page(vma, address, pte_pfn(entry));
 		pte_val(entry) &= ~L_PTE_MT_MASK;
 		pte_val(entry) |= shared_pte_mask;
@@ -94,7 +97,7 @@ make_coherent(struct address_space *mapping, struct vm_area_struct *vma, unsigne
 	struct mm_struct *mm = vma->vm_mm;
 	struct vm_area_struct *mpnt;
 	struct prio_tree_iter iter;
-	unsigned long offset;
+	unsigned long offset, address = addr & PAGE_MASK;
 	pgoff_t pgoff;
 	int aliases = 0;
 
@@ -120,9 +123,10 @@ make_coherent(struct address_space *mapping, struct vm_area_struct *vma, unsigne
 		aliases += adjust_pte(mpnt, mpnt->vm_start + offset);
 	}
 	flush_dcache_mmap_unlock(mapping);
-	if (aliases)
+	if (aliases) {
 		adjust_pte(vma, addr);
-	else
+		dmac_flush_range(address, address + PAGE_SIZE);
+	} else
 		flush_cache_page(vma, addr, pfn);
 }
 

@@ -347,6 +347,7 @@ static int __devinit ssp_probe(struct platform_device *pdev, int type)
 {
 	struct resource *res;
 	struct ssp_device *ssp;
+	char buf[20];
 	int ret = 0;
 
 	ssp = kzalloc(sizeof(struct ssp_device), GFP_KERNEL);
@@ -355,12 +356,6 @@ static int __devinit ssp_probe(struct platform_device *pdev, int type)
 		return -ENOMEM;
 	}
 	ssp->pdev = pdev;
-
-	ssp->clk = clk_get(&pdev->dev, "SSPCLK");
-	if (IS_ERR(ssp->clk)) {
-		ret = PTR_ERR(ssp->clk);
-		goto err_free;
-	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
@@ -416,6 +411,14 @@ static int __devinit ssp_probe(struct platform_device *pdev, int type)
 	ssp->use_count = 0;
 	ssp->type = type;
 
+	memset(buf, 0, 20);
+	sprintf(buf, "SSP%dCLK", ssp->port_id);
+	ssp->clk = clk_get(&pdev->dev, buf);
+	if (IS_ERR(ssp->clk)) {
+		ret = PTR_ERR(ssp->clk);
+		goto err_free_io;
+	}
+
 	mutex_lock(&ssp_lock);
 	list_add(&ssp->node, &ssp_list);
 	mutex_unlock(&ssp_lock);
@@ -429,7 +432,6 @@ err_free_mem:
 	release_mem_region(res->start, res->end - res->start + 1);
 err_free_clk:
 	clk_put(ssp->clk);
-err_free:
 	kfree(ssp);
 	return ret;
 }

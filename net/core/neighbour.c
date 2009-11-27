@@ -1445,7 +1445,7 @@ void neigh_table_init_no_netlink(struct neigh_table *tbl)
 
 	rwlock_init(&tbl->lock);
 	setup_timer(&tbl->gc_timer, neigh_periodic_timer, (unsigned long)tbl);
-	tbl->gc_timer.expires  = now + 1;
+	tbl->gc_timer.expires  = now + 10;
 	add_timer(&tbl->gc_timer);
 
 	setup_timer(&tbl->proxy_timer, neigh_proxy_process, (unsigned long)tbl);

@@ -92,7 +92,7 @@ module_param (log2_irq_thresh, int, S_IRUGO);
 MODULE_PARM_DESC (log2_irq_thresh, "log2 IRQ latency, 1-64 microframes");
 
 /* initial park setting:  slower than hw default */
-static unsigned park = 0;
+static unsigned park = 0; /* JZhou: set to 3 for CI EHCI, CONFIG_USB_PXA9XX_U2O */
 module_param (park, uint, S_IRUGO);
 MODULE_PARM_DESC (park, "park setting; 1-3 back-to-back async packets");
 
@@ -216,6 +216,13 @@ static int ehci_reset (struct ehci_hcd *ehci)
 
 	if (ehci_is_TDI(ehci))
 		tdi_reset (ehci);
+
+#ifdef CONFIG_USB_PXA9XX_U2O
+	{
+		extern void pxa9xx_u2o_host_enable (void);
+		pxa9xx_u2o_host_enable();
+	}
+#endif
 
 	return retval;
 }
@@ -346,11 +353,16 @@ static void ehci_silence_controller(struct ehci_hcd *ehci)
 	ehci_halt(ehci);
 	ehci_turn_off_all_ports(ehci);
 
+#ifndef CONFIG_USB_PXA9XX_U2O
+	// We do not have companion controller - JZhou
 	/* make BIOS/etc use companion controller during reboot */
 	ehci_writel(ehci, 0, &ehci->regs->configured_flag);
 
 	/* unblock posted writes */
 	ehci_readl(ehci, &ehci->regs->configured_flag);
+#else
+	printk("%s We do not have companion controller\n", __func__);
+#endif
 }
 
 /* ehci_shutdown kick in for silicon on any bus (not just pci, etc).
@@ -740,7 +752,10 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 		ehci_halt(ehci);
 dead:
 		ehci_reset(ehci);
+#ifndef CONFIG_USB_PXA9XX_U2O
+		/* TavorPV does not have companion chip - JZhou */
 		ehci_writel(ehci, 0, &ehci->regs->configured_flag);
+#endif
 		/* generic layer kills/unlinks all urbs, then
 		 * uses ehci_stop to clean up the rest
 		 */
@@ -1032,6 +1047,11 @@ MODULE_LICENSE ("GPL");
 #ifdef CONFIG_ARCH_IXP4XX
 #include "ehci-ixp4xx.c"
 #define	PLATFORM_DRIVER		ixp4xx_ehci_driver
+#endif
+
+#ifdef CONFIG_USB_PXA9XX_U2O
+#include "ehci-pxa9xx.c"
+#define	PLATFORM_DRIVER		pxa9xx_ehci_driver
 #endif
 
 #if !defined(PCI_DRIVER) && !defined(PLATFORM_DRIVER) && \

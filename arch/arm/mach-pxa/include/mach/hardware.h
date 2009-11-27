@@ -42,6 +42,11 @@
 #define io_p2v(x) (0xf2000000 + ((x) & 0x01ffffff) + (((x) & 0x1c000000) >> 1))
 #define io_v2p(x) (0x3c000000 + ((x) & 0x01ffffff) + (((x) & 0x0e000000) << 1))
 
+#define io_p2v_3(x)	((((x) & 0xfc000000) >> 4) + 0xf5000000 + \
+				((x) & 0x001fffff))
+#define io_v2p_3(x)	(((((x) - 0xf5000000) & 0x0fc00000) << 4) + \
+				((x) & 0x001fffff))
+
 #ifndef __ASSEMBLY__
 
 # define __REG(x)	(*((volatile u32 *)io_p2v(x)))
@@ -50,6 +55,8 @@
    especially if it is a variable, otherwise horrible code will result. */
 # define __REG2(x,y)	\
 	(*(volatile u32 *)((u32)&__REG(x) + (y)))
+
+# define __REG_3(x)	(*((volatile u32 *)io_p2v_3(x)))
 
 # define __PREG(x)	(io_v2p((u32)&(x)))
 
@@ -110,7 +117,7 @@
 		_id == 0x2120;				\
 	})
 
-#define __cpu_is_pxa250(id)				\
+#define __cpu_is_pxa21x(id)				\
 	({						\
 		unsigned int _id = (id) & 0xf3ff;	\
 		_id <= 0x2105;				\
@@ -129,7 +136,7 @@
 	})
 #else
 #define __cpu_is_pxa210(id)	(0)
-#define __cpu_is_pxa250(id)	(0)
+#define __cpu_is_pxa21x(id)	(0)
 #define __cpu_is_pxa255(id)	(0)
 #define __cpu_is_pxa25x(id)	(0)
 #endif
@@ -189,9 +196,19 @@
 		__cpu_is_pxa210(read_cpuid_id());	\
 	})
 
-#define cpu_is_pxa250()					\
+#ifdef CONFIG_CPU_PXA935
+#define __cpu_is_pxa935(id)				\
 	({						\
-		__cpu_is_pxa250(read_cpuid_id());	\
+		unsigned int _id = (id) >> 4 & 0xfff;	\
+		_id == 0x693;				\
+	 })
+#else
+#define __cpu_is_pxa935(id)	(0)
+#endif
+
+#define cpu_is_pxa21x()					\
+	({						\
+		__cpu_is_pxa21x(read_cpuid_id());	\
 	})
 
 #define cpu_is_pxa255()                                 \
@@ -230,6 +247,11 @@ extern int cpu_is_pxa26x(void);
 	({						\
 		unsigned int id = read_cpuid(CPUID_ID);	\
 		__cpu_is_pxa930(id);			\
+	 })
+#define cpu_is_pxa935()					\
+	({						\
+		unsigned int id = read_cpuid(CPUID_ID);	\
+		__cpu_is_pxa935(id);			\
 	 })
 
 /*
@@ -273,6 +295,15 @@ extern int pxa_gpio_get_value(unsigned gpio);
  * Set output GPIO level
  */
 extern void pxa_gpio_set_value(unsigned gpio, int value);
+
+/*
+ * Routine to enable or disable CKEN
+ */
+static inline void __deprecated pxa_set_cken(int clock, int enable)
+{
+	extern void __pxa_set_cken(int clock, int enable);
+	__pxa_set_cken(clock, enable);
+}
 
 /*
  * return current memory and LCD clock frequency in units of 10kHz

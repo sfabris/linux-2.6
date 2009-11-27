@@ -185,4 +185,40 @@ config MCU_MPC8349EMITX
 	  also register MCU GPIOs with the generic GPIO API, so you'll able
 	  to use MCU pins as GPIOs.
 
+config SENSORS_AKM8976
+	tristate "AKM8976 Compass Driver"
+	depends on I2C
+	help
+	 AKM8976 Compass Driver implemented by HTC.
+
+config SENSORS_PCA963X
+	tristate "Philips PCA963X 4-bit I2C-bus LED"
+	depends on I2C && EXPERIMENTAL
+	help
+	 If you say yes here you get support for the Philips PCA963X
+	 4-bit I2C-bus LED.
+
+	 This driver can also be built as a module.  If so, the module
+	 will be called pca963X.
+
+config PXA3xx_ARAVA
+        boolean "Arava Power Management Integrated Circuit"
+        depends on I2C && I2C_PXA
+        select PXA3xx_PMIC
+        default n
+        help
+          If you say yes here, you get support for PXA3xx Arava Devices
+          This driver can NOT be built as a module.
+
+config PXA3xx_MICCO
+	boolean "Micco chip"
+	depends on I2C && I2C_PXA
+	select PXA3xx_PMIC
+	default n
+	help
+	  Micco is a PMIC/Audio/Touch chip.
+	  If you say yes here, you support for it.
+
+	  This driver can NOT be built as a module.
+
 endmenu

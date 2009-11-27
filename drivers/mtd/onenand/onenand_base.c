@@ -24,8 +24,18 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/onenand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/pxa3xx_bbm.h>
+#include <linux/clk.h>
 
 #include <asm/io.h>
+#include <mach/pxa3xx-regs.h>
+#if defined(CONFIG_PXA3xx_DVFM)
+#include <mach/dvfm.h>
+#include <mach/pxa3xx_dvfm.h>
+#endif
+
+static struct pxa3xx_bbm *pxa3xx_bbm;
+static struct clk *pxa3xx_smc_clk = NULL;
 
 /**
  * onenand_oob_64 - oob info for large (2KB) page
@@ -66,6 +76,47 @@ static const unsigned char ffchars[] = {
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,	/* 64 */
 };
+
+#if defined(CONFIG_PXA3xx_DVFM)
+static struct dvfm_lock dvfm_lock = {
+	.lock		= SPIN_LOCK_UNLOCKED,
+	.dev_idx	= -1,
+	.count		= 0,
+};
+
+static void set_dvfm_constraint(void)
+{
+	spin_lock_irqsave(&dvfm_lock.lock, dvfm_lock.flags);
+	if (dvfm_lock.count++ == 0) {
+		/* Disable Low power mode */
+		dvfm_disable_op_name("D1", dvfm_lock.dev_idx);
+		dvfm_disable_op_name("D2", dvfm_lock.dev_idx);
+		if (cpu_is_pxa935())
+			dvfm_disable_op_name("CG", dvfm_lock.dev_idx);
+	}
+	spin_unlock_irqrestore(&dvfm_lock.lock, dvfm_lock.flags);
+}
+
+static void unset_dvfm_constraint(void)
+{
+	spin_lock_irqsave(&dvfm_lock.lock, dvfm_lock.flags);
+	if (dvfm_lock.count == 0) {
+		spin_unlock_irqrestore(&dvfm_lock.lock, dvfm_lock.flags);
+		return;
+	}
+	if (--dvfm_lock.count == 0) {
+		/* Enable Low power mode */
+		dvfm_enable_op_name("D1", dvfm_lock.dev_idx);
+		dvfm_enable_op_name("D2", dvfm_lock.dev_idx);
+		if (cpu_is_pxa935())
+			dvfm_enable_op_name("CG", dvfm_lock.dev_idx);
+	}
+	spin_unlock_irqrestore(&dvfm_lock.lock, dvfm_lock.flags);
+}
+#else
+static void set_dvfm_constraint() {}
+static void unset_dvfm_constraint() {}
+#endif
 
 /**
  * onenand_readw - [OneNAND Interface] Read OneNAND register
@@ -196,6 +247,14 @@ static int onenand_command(struct mtd_info *mtd, int cmd, loff_t addr, size_t le
 {
 	struct onenand_chip *this = mtd->priv;
 	int value, block, page;
+	int reloc_block;
+
+	if (pxa3xx_bbm && pxa3xx_bbm->table_init && pxa3xx_bbm->search) {
+		block = (int)(addr >> pxa3xx_bbm->erase_shift);
+		reloc_block = pxa3xx_bbm->search(mtd, pxa3xx_bbm, block);
+		addr = ((reloc_block << this->erase_shift) |
+				(addr & ((1 << this->erase_shift) - 1)));
+	}
 
 	/* Address translation */
 	switch (cmd) {
@@ -753,6 +812,10 @@ static int onenand_get_device(struct mtd_info *mtd, int new_state)
 		remove_wait_queue(&this->wq, &wait);
 	}
 
+	clk_enable(pxa3xx_smc_clk);
+	/* If get onenand device, set dvfm constraint */
+	set_dvfm_constraint();
+
 	return 0;
 }
 
@@ -771,6 +834,11 @@ static void onenand_release_device(struct mtd_info *mtd)
 	this->state = FL_READY;
 	wake_up(&this->wq);
 	spin_unlock(&this->chip_lock);
+
+	/* unset dvfm constraint when release onenand device */
+	unset_dvfm_constraint();
+
+	clk_disable(pxa3xx_smc_clk);
 }
 
 /**
@@ -1927,6 +1995,7 @@ static int onenand_default_block_markbad(struct mtd_info *mtd, loff_t ofs)
 static int onenand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 {
 	struct onenand_chip *this = mtd->priv;
+	struct bbm_info *bbm = this->bbm;
 	int ret;
 
 	ret = onenand_block_isbad(mtd, ofs);
@@ -1935,6 +2004,15 @@ static int onenand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 		if (ret > 0)
 			return 0;
 		return ret;
+	}
+
+	int block;
+	/* Get block number */
+	block = ((int) ofs) >> bbm->bbt_erase_shift;
+	if (pxa3xx_bbm && pxa3xx_bbm->table_init && pxa3xx_bbm->markbad) {
+		ret = pxa3xx_bbm->markbad(mtd, pxa3xx_bbm, block);
+		if (!ret)
+			return 0;
 	}
 
 	onenand_get_device(mtd, FL_WRITING);
@@ -1966,6 +2044,8 @@ static int onenand_do_lock_cmd(struct mtd_info *mtd, loff_t ofs, size_t len, int
 	else
 		wp_status_mask = ONENAND_WP_US;
 
+#ifndef	CONFIG_PXA3xx_BBM
+	/* FIXME: If we enable relocation table, we can't use continuous lock */
 	/* Continuous lock scheme */
 	if (this->options & ONENAND_HAS_CONT_LOCK) {
 		/* Set start block address */
@@ -1990,6 +2070,7 @@ static int onenand_do_lock_cmd(struct mtd_info *mtd, loff_t ofs, size_t len, int
 
 		return 0;
 	}
+#endif
 
 	/* Block lock scheme */
 	for (block = start; block < start + end; block++) {
@@ -2648,6 +2729,9 @@ static int onenand_probe(struct mtd_info *mtd)
 		mtd->erasesize <<= 1;
 	}
 
+#if defined(CONFIG_PXA3xx_DVFM)
+	dvfm_register("OneNAND", &dvfm_lock.dev_idx);
+#endif
 	return 0;
 }
 
@@ -2687,8 +2771,11 @@ static void onenand_resume(struct mtd_info *mtd)
  */
 int onenand_scan(struct mtd_info *mtd, int maxchips)
 {
-	int i;
+	int i, ret;
 	struct onenand_chip *this = mtd->priv;
+
+	pxa3xx_smc_clk = clk_get(NULL, "SMCCLK");
+	clk_enable(pxa3xx_smc_clk);
 
 	if (!this->read_word)
 		this->read_word = onenand_readw;
@@ -2710,8 +2797,10 @@ int onenand_scan(struct mtd_info *mtd, int maxchips)
 	if (!this->scan_bbt)
 		this->scan_bbt = onenand_default_bbt;
 
-	if (onenand_probe(mtd))
-		return -ENXIO;
+	if (onenand_probe(mtd)) {
+		ret = -ENXIO;
+		goto out_smc;
+	}
 
 	/* Set Sync. Burst Read after probing */
 	if (this->mmcontrol) {
@@ -2724,7 +2813,8 @@ int onenand_scan(struct mtd_info *mtd, int maxchips)
 		this->page_buf = kzalloc(mtd->writesize, GFP_KERNEL);
 		if (!this->page_buf) {
 			printk(KERN_ERR "onenand_scan(): Can't allocate page_buf\n");
-			return -ENOMEM;
+			ret = -ENOMEM;
+			goto out_smc;
 		}
 		this->options |= ONENAND_PAGEBUF_ALLOC;
 	}
@@ -2736,7 +2826,8 @@ int onenand_scan(struct mtd_info *mtd, int maxchips)
 				this->options &= ~ONENAND_PAGEBUF_ALLOC;
 				kfree(this->page_buf);
 			}
-			return -ENOMEM;
+			ret = -ENOMEM;
+			goto out_smc;
 		}
 		this->options |= ONENAND_OOBBUF_ALLOC;
 	}
@@ -2814,7 +2905,46 @@ int onenand_scan(struct mtd_info *mtd, int maxchips)
 	/* Unlock whole block */
 	onenand_unlock_all(mtd);
 
-	return this->scan_bbt(mtd);
+	/* NOTES: alloc pxa3xx bbm after unlock operation because
+	 * the mtd->size will shrink in pxa3xx_bbm->init to
+	 * reserver relocation blocks.
+	 */
+	pxa3xx_bbm = alloc_pxa3xx_bbm();
+	if (!pxa3xx_bbm) {
+		goto out;
+	}
+
+	if (pxa3xx_bbm->init) {
+		pxa3xx_bbm->flash_type = FLASH_ONENAND;
+		pxa3xx_bbm->page_shift = this->page_shift;
+		pxa3xx_bbm->erase_shift = this->erase_shift;
+
+		if (pxa3xx_bbm->init(mtd, pxa3xx_bbm))
+			goto free_bbm;
+	}
+
+	ret = this->scan_bbt(mtd);
+	clk_disable(pxa3xx_smc_clk);
+	return ret;
+
+free_bbm:
+	free_pxa3xx_bbm(pxa3xx_bbm);
+out:
+	if (this->options & ONENAND_PAGEBUF_ALLOC) {
+		this->options &= ~ONENAND_PAGEBUF_ALLOC;
+		kfree(this->page_buf);
+	}
+
+	if (this->options |= ONENAND_OOBBUF_ALLOC) {
+		this->options &= ~ONENAND_OOBBUF_ALLOC;
+		kfree(this->oob_buf);
+	}
+
+	clk_disable(pxa3xx_smc_clk);
+	return -EINVAL;
+out_smc:
+	clk_disable(pxa3xx_smc_clk);
+	return ret;
 }
 
 /**
@@ -2843,6 +2973,11 @@ void onenand_release(struct mtd_info *mtd)
 		kfree(this->page_buf);
 	if (this->options & ONENAND_OOBBUF_ALLOC)
 		kfree(this->oob_buf);
+
+	if (pxa3xx_bbm && pxa3xx_bbm->uninit) {
+		pxa3xx_bbm->uninit(mtd, pxa3xx_bbm);
+		free_pxa3xx_bbm(pxa3xx_bbm);
+	}
 }
 
 EXPORT_SYMBOL_GPL(onenand_scan);

@@ -165,6 +165,14 @@ config LEDS_DA903X
 	  This option enables support for on-chip LED drivers found
 	  on Dialog Semiconductor DA9030/DA9034 PMICs.
 
+config LEDS_SFH7225
+	tristate "LED Support for SFH7225 notification led"
+	depends on LEDS_CLASS && LEDS_TRIGGERS && LEDS_TRIGGER_TIMER
+	default y
+	help
+	  This option enables support for the OSRAM SFH7225 notification
+	  led which connected to micco - LED_PC.
+ 
 comment "LED Triggers"
 
 config LEDS_TRIGGERS
@@ -216,5 +224,11 @@ config LEDS_TRIGGER_DEFAULT_ON
 	help
 	  This allows LEDs to be initialised in the ON state.
 	  If unsure, say Y.
+
+config LEDS_TRIGGER_SLEEP
+	tristate "LED Sleep Mode Trigger"
+	depends on LEDS_TRIGGERS && HAS_EARLYSUSPEND
+	help
+	  This turns LEDs on when the screen is off but the cpu still running.
 
 endif # NEW_LEDS

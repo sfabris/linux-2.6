@@ -332,6 +332,10 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 #define MAX_LUNS	8
 
+#ifdef CONFIG_USB_COMPOSITE
+static struct fsg_dev *fsg_device;
+#endif
+
 static struct {
 	char		*file[MAX_LUNS];
 	int		ro[MAX_LUNS];
@@ -355,10 +359,11 @@ static struct {
 	char		*protocol_name;
 
 } mod_data = {					// Default values
+	.file			= {"/dev/mtdblock3", },
 	.transport_parm		= "BBB",
 	.protocol_parm		= "SCSI",
 	.removable		= 0,
-	.can_stall		= 1,
+	.can_stall		= 0,
 	.vendor			= DRIVER_VENDOR_ID,
 	.product		= DRIVER_PRODUCT_ID,
 	.release		= 0xffff,	// Use controller chip type
@@ -1111,7 +1116,11 @@ static int ep0_queue(struct fsg_dev *fsg)
 
 static void ep0_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	struct fsg_dev		*fsg = ep->driver_data;
+#ifndef CONFIG_USB_COMPOSITE
+	struct fsg_dev		*fsg = (struct fsg_dev *) ep->driver_data;
+#else
+	struct fsg_dev		*fsg = fsg_device;
+#endif
 
 	if (req->actual > 0)
 		dump_msg(fsg, fsg->ep0req_name, req->buf, req->actual);
@@ -3856,6 +3865,9 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	set_gadget_data(gadget, fsg);
 	fsg->ep0 = gadget->ep0;
 	fsg->ep0->driver_data = fsg;
+#ifdef CONFIG_USB_COMPOSITE
+	fsg_device = fsg;
+#endif
 
 	if ((rc = check_parameters(fsg)) != 0)
 		goto out;

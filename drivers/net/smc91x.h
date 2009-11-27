@@ -43,6 +43,8 @@
 #if defined(CONFIG_ARCH_LUBBOCK) ||\
     defined(CONFIG_MACH_MAINSTONE) ||\
     defined(CONFIG_MACH_ZYLONITE) ||\
+    defined(CONFIG_MACH_TAVOREVB) ||\
+    defined(CONFIG_MACH_SAAR) ||\
     defined(CONFIG_MACH_LITTLETON) ||\
     defined(CONFIG_ARCH_VIPER)
 

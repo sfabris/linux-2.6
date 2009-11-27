@@ -145,6 +145,39 @@ ENTRY(cpu_xsc3_do_idle)
 /* ================================= CACHE ================================ */
 
 /*
+ *     flush_l2_cache_all()
+ *
+ *     Invalidate all L2 cache entries.
+ */
+ENTRY(xsc3_flush_l2cache_all)
+       mov     ip, #0
+       stmfd   sp!, {r0, r1, r2, r3, lr}
+#ifdef CONFIG_CPU_PXA3xx_L2CACHE
+        get_l2_present r0
+        mcrne   p15, 1, r0, c9, c5, 1   @ unlock all L2 cache lines, if L2 present
+       cpwait  ip
+
+        mcr     p15, 0, ip, c7, c10, 5  @ DMB
+        get_l2_size r0
+        mov     r1, #0xFFFFFFE0
+        mov     r2, #19
+        sub     r2, r2, r0
+        mov     r0, r1, lsl r2
+        mov     r0, r0, lsr r2
+L2Cleanloop:
+        mcr     p15, 1, r0, c7, c15, 2  @ clean and invalidate set/way in r0
+        adds    r0, r0, #0x20000000
+        bcc     L2Cleanloop
+        subs    r0, r0, #0x00000020
+        bpl     L2Cleanloop
+
+        mcr     p15, 0, ip, c7, c10, 5  @ DMB
+
+#endif
+       ldmfd   sp!, {r0, r1, r2, r3, pc}
+
+
+/*
  *	flush_user_cache_all()
  *
  *	Invalidate all cache entries in a particular address
@@ -345,22 +378,24 @@ ENTRY(cpu_xsc3_switch_mm)
  * cpu_xsc3_set_pte_ext(ptep, pte, ext)
  *
  * Set a PTE and flush it out
+ *
  */
+
 cpu_xsc3_mt_table:
 	.long	0x00						@ L_PTE_MT_UNCACHED
-	.long	PTE_EXT_TEX(1)					@ L_PTE_MT_BUFFERABLE
+	.long	PTE_BUFFERABLE					@ L_PTE_MT_BUFFERABLE
 	.long	PTE_EXT_TEX(5) | PTE_CACHEABLE			@ L_PTE_MT_WRITETHROUGH
-	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_WRITEBACK
-	.long	PTE_EXT_TEX(1) | PTE_BUFFERABLE			@ L_PTE_MT_DEV_SHARED
+	.long	PTE_EXT_TEX(5) | PTE_CACHEABLE | PTE_BUFFERABLE	@ L_PTE_MT_WRITEBACK
+	.long	0x00						@ L_PTE_MT_DEV_SHARED
 	.long	0x00						@ unused
 	.long	0x00						@ L_PTE_MT_MINICACHE (not present)
 	.long	PTE_EXT_TEX(5) | PTE_CACHEABLE | PTE_BUFFERABLE	@ L_PTE_MT_WRITEALLOC (not present?)
 	.long	0x00						@ unused
 	.long	PTE_EXT_TEX(1)					@ L_PTE_MT_DEV_WC
 	.long	0x00						@ unused
-	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_DEV_CACHED
-	.long	PTE_EXT_TEX(2)					@ L_PTE_MT_DEV_NONSHARED
-	.long	0x00						@ unused
+	.long	PTE_EXT_TEX(5) | PTE_CACHEABLE | PTE_BUFFERABLE	@ L_PTE_MT_DEV_CACHED
+	.long	0x00						@ L_PTE_MT_DEV_NONSHARED
+	.long	0x00						@ L_PTE_MT_DEV_IXP2000 (not present)
 	.long	0x00						@ unused
 	.long	0x00						@ unused
 
@@ -481,3 +516,24 @@ __xsc3_proc_info:
 	.long	xsc3_mc_user_fns
 	.long	xsc3_cache_fns
 	.size	__xsc3_proc_info, . - __xsc3_proc_info
+__xsc3p65e_proc_info:
+	.long	0x56056000
+	.long	0xffffe000
+	.long	PMD_TYPE_SECT | \
+		PMD_SECT_BUFFERABLE | \
+		PMD_SECT_CACHEABLE | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ
+	.long	PMD_TYPE_SECT | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ
+	b	__xsc3_setup
+	.long	cpu_arch_name
+	.long	cpu_elf_name
+	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP
+	.long	cpu_xsc3_name
+	.long	xsc3_processor_functions
+	.long	v4wbi_tlb_fns
+	.long	xsc3_mc_user_fns
+	.long	xsc3_cache_fns
+	.size	__xsc3p65e_proc_info, . - __xsc3p65e_proc_info

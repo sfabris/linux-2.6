@@ -49,7 +49,7 @@ static const char *isa_modes[] = {
 
 extern void setup_mm_for_reboot(char mode);
 
-static volatile int hlt_counter;
+volatile int hlt_counter;
 
 #include <mach/system.h>
 
@@ -334,6 +334,16 @@ int dump_fpu (struct pt_regs *regs, struct user_fp *fp)
 	return used_math != 0;
 }
 EXPORT_SYMBOL(dump_fpu);
+
+/*
+ * Capture the user space registers if the task is not running (in user space)
+ */
+int dump_task_regs(struct task_struct *tsk, elf_gregset_t *regs)
+{
+	struct pt_regs ptregs = *task_pt_regs(tsk);
+	elf_core_copy_regs(regs, &ptregs);
+	return 1;
+}
 
 /*
  * Shuffle the argument into the correct register before calling the

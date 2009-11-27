@@ -15,7 +15,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
-#include <linux/sysdev.h>
 
 #include <mach/hardware.h>
 #include <asm/irq.h>
@@ -73,48 +72,3 @@ void __init pxa_init_irq(int irq_nr, set_wake_t fn)
 
 	pxa_internal_irq_chip.set_wake = fn;
 }
-
-#ifdef CONFIG_PM
-static unsigned long saved_icmr[2];
-
-static int pxa_irq_suspend(struct sys_device *dev, pm_message_t state)
-{
-	int i, irq = PXA_IRQ(0);
-
-	for (i = 0; irq < PXA_IRQ(pxa_internal_irq_nr); i++, irq += 32) {
-		saved_icmr[i] = _ICMR(irq);
-		_ICMR(irq) = 0;
-	}
-
-	return 0;
-}
-
-static int pxa_irq_resume(struct sys_device *dev)
-{
-	int i, irq = PXA_IRQ(0);
-
-	for (i = 0; irq < PXA_IRQ(pxa_internal_irq_nr); i++, irq += 32) {
-		_ICMR(irq) = saved_icmr[i];
-		_ICLR(irq) = 0;
-	}
-
-	ICCR = 1;
-	return 0;
-}
-#else
-#define pxa_irq_suspend		NULL
-#define pxa_irq_resume		NULL
-#endif
-
-struct sysdev_class pxa_irq_sysclass = {
-	.name		= "irq",
-	.suspend	= pxa_irq_suspend,
-	.resume		= pxa_irq_resume,
-};
-
-static int __init pxa_irq_init(void)
-{
-	return sysdev_class_register(&pxa_irq_sysclass);
-}
-
-core_initcall(pxa_irq_init);

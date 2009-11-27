@@ -44,6 +44,7 @@ struct fat_mount_options {
 
 #define FAT_HASH_BITS	8
 #define FAT_HASH_SIZE	(1UL << FAT_HASH_BITS)
+#define FAT_HASH_MASK	(FAT_HASH_SIZE-1)
 
 /*
  * MS-DOS file system in-core superblock data
@@ -71,6 +72,7 @@ struct msdos_sb_info {
 	const void *dir_ops;		     /* Opaque; default directory operations */
 	int dir_per_block;	     /* dir entries per block */
 	int dir_per_block_bits;	     /* log2(dir_per_block) */
+	unsigned long vol_id;        /* volume ID */
 
 	int fatent_shift;
 	struct fatent_operations *fatent_ops;

@@ -21,7 +21,6 @@
 #include <asm/gpio.h>
 #include <mach/hardware.h>
 #include <mach/pxa-regs.h>
-#include <mach/pxa2xx-gpio.h>
 
 #include "generic.h"
 
@@ -152,6 +151,32 @@ static struct pxa_gpio_chip pxa_gpio_chip[] = {
 	GPIO_CHIP(2),
 #if defined(CONFIG_PXA27x) || defined(CONFIG_PXA3xx)
 	GPIO_CHIP(3),
+#endif
+#if defined(CONFIG_CPU_PXA935)
+	[4] = {
+		.regbase = GPIO4_BASE,
+		.chip = {
+			.label            = "gpio-4",
+			.direction_input  = pxa_gpio_direction_input,
+			.direction_output = pxa_gpio_direction_output,
+			.get              = pxa_gpio_get,
+			.set              = pxa_gpio_set,
+			.base             = 128,
+			.ngpio            = 32,
+		},
+	},
+	[5] = {
+		.regbase = GPIO5_BASE,
+		.chip = {
+			.label            = "gpio-5",
+			.direction_input  = pxa_gpio_direction_input,
+			.direction_output = pxa_gpio_direction_output,
+			.get              = pxa_gpio_get,
+			.set              = pxa_gpio_set,
+			.base             = 160,
+			.ngpio            = 32,
+		},
+	},
 #endif
 };
 

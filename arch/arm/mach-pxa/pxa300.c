@@ -25,6 +25,7 @@
 #include "devices.h"
 #include "clock.h"
 
+#define ARRAY_AND_SIZE(x)	(x), ARRAY_SIZE(x)
 static struct pxa3xx_mfp_addr_map pxa300_mfp_addr_map[] __initdata = {
 
 	MFP_ADDR_X(GPIO0,   GPIO2,   0x00b4),
@@ -87,11 +88,16 @@ static struct pxa3xx_mfp_addr_map pxa310_mfp_addr_map[] __initdata = {
 
 static struct clk common_clks[] = {
 	PXA3xx_CKEN("NANDCLK", NAND, 156000000, 0, &pxa3xx_device_nand.dev),
+#ifdef CONFIG_CPU_PXA300
+	PXA3xx_CKEN("MMCCLK", MMC1, 19500000, 0, &pxa_device_mci.dev),
+	PXA3xx_CKEN("MMCCLK", MMC2, 19500000, 0, &pxa3xx_device_mci2.dev),
+#endif
 };
 
 static struct clk pxa310_clks[] = {
 #ifdef CONFIG_CPU_PXA310
 	PXA3xx_CKEN("MMCCLK", MMC3, 19500000, 0, &pxa3xx_device_mci3.dev),
+	PXA3xx_CKEN("MVEDCLK", MVED, 152000000, 0, &pxa3xx_device_mved.dev),
 #endif
 };
 
