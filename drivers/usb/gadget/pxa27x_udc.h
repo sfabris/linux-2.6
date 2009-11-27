@@ -125,11 +125,11 @@
 #define U2DOTGCR_AHNP          (1 << 29)                /* A-device Host Negotiation Protocal Support */
 #define U2DOTGCR_BHNP          (1 << 28)                /* B-device Host Negotiation Protocal Enable */
 
-#ifdef CONFIG_CPU_PXA930
+//#ifdef CONFIG_CPU_PXA930
 #define U2DOTGCR_LPA		(1 << 15)	/* ULPI low power mode active */
 #define U2DOTGCR_IESI		(1 << 13)	/* OTG interrupt Enable */
 #define U2DOTGCR_ISSI		(1 << 12)	/* OTG interrupt status */
-#endif
+//#endif
 
 #define U2DOTGCR_CKAF          (1 << 5)                         /* Carkit Mode Alternate Function Select */
 #define U2DOTGCR_UTMID         (1 << 4)                         /* UTMI Interface Disable */

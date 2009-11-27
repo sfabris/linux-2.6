@@ -85,7 +85,7 @@
 #define IRQ_MVED_DMA	PXA_IRQ(48)	/* MVED DMA Controller*/
 #endif
 
-#ifdef CONFIG_CPU_PXA935
+#if defined CONFIG_CPU_PXA935 || defined(CONFIG_PXA3xx)
 #define IRQ_U2O		PXA_IRQ(64)	/* USB OTG 2.0 Controller (PXA935) */
 #define IRQ_U2H		PXA_IRQ(65)	/* USB Host 2.0 Controller (PXA935) */
 

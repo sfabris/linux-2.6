@@ -26,7 +26,7 @@
 #define AD2D1SR		__REG(0x40F4001C)	/* Application Subsystem D2 to D1 state Wakeup Status Register */
 #define AD1D0ER		__REG(0x40F40020)	/* Application Subsystem D1 to D0 state Wakeup Enable Register */
 #define AD1D0SR		__REG(0x40F40024)	/* Application Subsystem D1 to D0 state Wakeup Status Register */
-#if defined(CONFIG_CPU_PXA935)
+#if defined(CONFIG_CPU_PXA935) || defined(CONFIG_CPU_PXA310)
 #define ACGD0ER		__REG(0x41340028)	/* Application Subsystem CG to D0 state Wakeup Status Register */
 #define ACGD0SR		__REG(0x4134002C)	/* Application Subsystem CG to D0 state Wakeup Status Register */
 #endif
@@ -81,7 +81,7 @@
 #define ACCR_PCCE		(1 << 11)	/* Power Mode Change Clock Enable */
 #define ACCR_DDR_D0CS		(1 << 7)	/* DDR SDRAM clock frequency in D0CS (PXA31x only) */
 
-#if 0
+#if 1
 #define ACCR_SMCFS_MASK		(0x7 << 23)	/* Static Memory Controller Frequency Select */
 #define ACCR_SFLFS_MASK		(0x3 << 18)	/* Frequency Select for Internal Memory Controller */
 #define ACCR_XSPCLK_MASK	(0x3 << 16)	/* Core Frequency during Frequency Change */
@@ -99,7 +99,7 @@
 #define ACCR_XN(x)		(((x) & 0x7) << 8)
 #define ACCR_XL(x)		((x) & 0x1f)
 
-#if defined(CONFIG_CPU_PXA935)
+#if defined(CONFIG_CPU_PXA935)|| defined(CONFIG_CPU_PXA310)
 #define ACCR1		__REG(0x41340020)	/* Application Subsystem Clock Configuration Register 1 */
 #define CKENC		__REG(0x41340024)	/* C Clock Enable Register */
 #define ACCR1_DIS_DRX		(1 << 31)	/* Disable DRX */

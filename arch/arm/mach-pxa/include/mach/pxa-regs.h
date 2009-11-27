@@ -1246,13 +1246,13 @@
 #define ICFP2		__REG(0x40D000A8)  /* Interrupt Controller FIQ Pending Register 2 */
 #define ICPR2		__REG(0x40D000AC)  /* Interrupt Controller Pending Register 2 */
 
-#ifdef CONFIG_CPU_PXA935
+//#if defined (CONFIG_CPU_PXA935) 
 #define ICIP3		__REG(0x40D00130)  /* Interrupt Controller IRQ Pending Register 3 */
 #define ICMR3		__REG(0x40D00134)  /* Interrupt Controller Mask Register 3 */
 #define ICLR3		__REG(0x40D00138)  /* Interrupt Controller Level Register 3 */
 #define ICFP3		__REG(0x40D0013C)  /* Interrupt Controller FIQ Pending Register 3 */
 #define ICPR3		__REG(0x40D00140)  /* Interrupt Controller Pending Register 3 */
-#endif
+//#endif
 
 #define _GPLR(x)	__REG2(0x40E00000, ((x) & 0x60) >> 3)
 #define _GPDR(x)	__REG2(0x40E0000C, ((x) & 0x60) >> 3)
